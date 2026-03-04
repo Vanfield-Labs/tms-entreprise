@@ -1,225 +1,123 @@
 // src/modules/users/pages/NewUserRequest.tsx
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { Alert, Btn, Card, CardBody, CardHeader, Field, Input, Select } from "@/components/TmsUI";
 
 type Division = { id: string; name: string };
-type Unit = { id: string; name: string; division_id: string };
+type Unit      = { id: string; name: string; division_id: string };
 
 const ROLES = [
-  { value: "staff", label: "Staff", desc: "General department staff" },
-  { value: "driver", label: "Driver", desc: "Vehicle operator" },
-  { value: "unit_head", label: "Unit Head", desc: "Head of a unit" },
-  { value: "transport_supervisor", label: "Transport Supervisor", desc: "Manages fleet & dispatch" },
-  { value: "corporate_approver", label: "Corporate Approver", desc: "Approves bookings & fuel" },
+  { value: "staff",                label: "Staff"                },
+  { value: "unit_head",            label: "Unit Head"            },
+  { value: "driver",               label: "Driver"               },
+  { value: "transport_supervisor", label: "Transport Supervisor" },
+  { value: "corporate_approver",   label: "Corporate Approver"   },
 ];
 
-const inputCls = "w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-transparent transition-all";
-
 export default function NewUserRequest() {
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [divisionId, setDivisionId] = useState("");
-  const [unitId, setUnitId] = useState("");
-  const [role, setRole] = useState("staff");
-  const [divisions, setDivisions] = useState<Division[]>([]);
-  const [units, setUnits] = useState<Unit[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [error, setError] = useState("");
+  const [divisions,     setDivisions]    = useState<Division[]>([]);
+  const [units,         setUnits]        = useState<Unit[]>([]);
+  const [fullName,      setFullName]     = useState("");
+  const [email,         setEmail]        = useState("");
+  const [divisionId,    setDivisionId]   = useState("");
+  const [unitId,        setUnitId]       = useState("");
+  const [role,          setRole]         = useState("staff");
+  const [positionTitle, setPositionTitle] = useState("");
+  const [saving,        setSaving]       = useState(false);
+  const [success,       setSuccess]      = useState(false);
+  const [error,         setError]        = useState<string | null>(null);
 
   useEffect(() => {
-    (async () => {
-      const [{ data: d }, { data: u }] = await Promise.all([
-        supabase.from("divisions").select("id,name").order("name"),
-        supabase.from("units").select("id,name,division_id").order("name"),
-      ]);
+    Promise.all([
+      supabase.from("divisions").select("id,name").order("name"),
+      supabase.from("units").select("id,name,division_id").order("name"),
+    ]).then(([{ data: d }, { data: u }]) => {
       setDivisions((d as Division[]) || []);
       setUnits((u as Unit[]) || []);
-    })();
+    });
   }, []);
 
-  const filteredUnits = units.filter((u) => !divisionId || u.division_id === divisionId);
+  const filteredUnits = divisionId ? units.filter(u => u.division_id === divisionId) : [];
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!fullName || !email || !divisionId || !unitId) {
-      setError("Please fill in all required fields.");
-      return;
+  const submit = async () => {
+    if (!fullName.trim() || !email.trim() || !divisionId || !unitId) {
+      setError("Please fill in all required fields."); return;
     }
-    setSaving(true);
-    setError("");
+    setSaving(true); setError(null);
     try {
-      const { data: me } = await supabase.auth.getUser();
-      const { error: err } = await supabase.from("user_requests").insert({
-        requested_by: me.user!.id,
-        full_name: fullName.trim(),
-        email: email.trim(),
-        division_id: divisionId,
-        unit_id: unitId,
-        requested_role: role,
+      const { error: e } = await supabase.from("user_requests").insert({
+        full_name: fullName.trim(), email: email.trim().toLowerCase(),
+        division_id: divisionId, unit_id: unitId,
+        system_role: role, position_title: positionTitle.trim() || null,
         status: "pending",
       });
-      if (err) throw err;
-      setFullName("");
-      setEmail("");
-      setDivisionId("");
-      setUnitId("");
-      setRole("staff");
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 5000);
+      if (e) throw e;
+      setFullName(""); setEmail(""); setDivisionId(""); setUnitId("");
+      setRole("staff"); setPositionTitle(""); setSuccess(true);
     } catch (e: any) {
-      setError(e.message || "Failed to submit request.");
-    } finally {
-      setSaving(false);
-    }
+      setError(e.message ?? "Submission failed.");
+    } finally { setSaving(false); }
   };
 
-  const selectedRole = ROLES.find((r) => r.value === role);
-
-  return (
-    <div className="space-y-4 max-w-xl">
-      <div className="page-header">
-        <h1 className="page-title">Request New User</h1>
-        <p className="page-sub">Request system access for a new team member</p>
-      </div>
-
-      {success && (
-        <div className="flex items-center gap-3 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 text-sm">
-          <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  if (success) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center px-4 max-w-sm mx-auto">
+        <div className="w-14 h-14 rounded-full bg-[color:var(--green)]/15 flex items-center justify-center mb-4">
+          <svg className="w-7 h-7 text-[color:var(--green)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/>
           </svg>
-          Request submitted. An admin will review and activate the account.
         </div>
-      )}
+        <h2 className="text-lg font-bold text-[color:var(--text)] mb-1">Request Submitted</h2>
+        <p className="text-sm text-[color:var(--text-muted)] mb-6">An admin will review it shortly.</p>
+        <Btn variant="ghost" onClick={() => setSuccess(false)}>Submit Another</Btn>
+      </div>
+    );
+  }
 
-      <form onSubmit={submit} className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100">
-          <h3 className="font-semibold text-gray-900">User Details</h3>
-          <p className="text-xs text-gray-400 mt-0.5">Fill in the details for the new team member</p>
-        </div>
-
-        <div className="p-5 space-y-4">
-          {/* Name & Email */}
+  return (
+    <div className="max-w-lg space-y-4">
+      <Card>
+        <CardHeader title="Request New User Account" subtitle="Admins will review and create the account" />
+        <CardBody className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-500">Full Name *</label>
-              <input
-                className={inputCls}
-                placeholder="e.g. John Doe"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-500">Email Address *</label>
-              <input
-                type="email"
-                className={inputCls}
-                placeholder="john@organization.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
+            <Field label="Full Name" required>
+              <Input placeholder="Jane Doe" value={fullName} onChange={e => setFullName(e.target.value)} />
+            </Field>
+            <Field label="Email" required>
+              <Input type="email" placeholder="jane@org.com" value={email} onChange={e => setEmail(e.target.value)} />
+            </Field>
           </div>
 
-          {/* Division & Unit */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-500">Division *</label>
-              <select
-                className={inputCls}
-                value={divisionId}
-                onChange={(e) => { setDivisionId(e.target.value); setUnitId(""); }}
-                required
-              >
-                <option value="">— Select division —</option>
-                {divisions.map((d) => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-500">Unit *</label>
-              <select
-                className={inputCls}
-                value={unitId}
-                onChange={(e) => setUnitId(e.target.value)}
-                disabled={!divisionId}
-                required
-              >
-                <option value="">— Select unit —</option>
-                {filteredUnits.map((u) => (
-                  <option key={u.id} value={u.id}>{u.name}</option>
-                ))}
-              </select>
-            </div>
+            <Field label="Division" required>
+              <Select value={divisionId} onChange={e => { setDivisionId(e.target.value); setUnitId(""); }}>
+                <option value="">Select division…</option>
+                {divisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Unit" required>
+              <Select value={unitId} onChange={e => setUnitId(e.target.value)} disabled={!divisionId}>
+                <option value="">Select unit…</option>
+                {filteredUnits.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Role" required>
+              <Select value={role} onChange={e => setRole(e.target.value)}>
+                {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+              </Select>
+            </Field>
+            <Field label="Position / Title">
+              <Input placeholder="e.g. Senior Producer" value={positionTitle} onChange={e => setPositionTitle(e.target.value)} />
+            </Field>
           </div>
 
-          {/* Role */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-gray-500">System Role *</label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {ROLES.map((r) => (
-                <button
-                  key={r.value}
-                  type="button"
-                  onClick={() => setRole(r.value)}
-                  className={`text-left px-3 py-2.5 rounded-xl border transition-all ${
-                    role === r.value
-                      ? "bg-black text-white border-black"
-                      : "bg-white border-gray-200 hover:border-gray-300 hover:bg-gray-50"
-                  }`}
-                >
-                  <div className={`text-xs font-semibold ${role === r.value ? "text-white" : "text-gray-800"}`}>
-                    {r.label}
-                  </div>
-                  <div className={`text-xs mt-0.5 ${role === r.value ? "text-white/70" : "text-gray-400"}`}>
-                    {r.desc}
-                  </div>
-                </button>
-              ))}
-            </div>
-            {selectedRole && (
-              <p className="text-xs text-gray-400 mt-1">
-                Selected: <span className="font-medium text-gray-600">{selectedRole.label}</span> — {selectedRole.desc}
-              </p>
-            )}
-          </div>
+          {error && <Alert type="error" onDismiss={() => setError(null)}>{error}</Alert>}
 
-          {error && (
-            <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
-              <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M12 3a9 9 0 100 18A9 9 0 0012 3z"/>
-              </svg>
-              {error}
-            </div>
-          )}
-
-          <div className="flex justify-end pt-1">
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex items-center gap-2 px-5 py-2.5 bg-black text-white text-sm font-medium rounded-xl hover:bg-gray-800 transition-colors disabled:opacity-40"
-            >
-              {saving ? (
-                <span className="flex items-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Submitting…
-                </span>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/>
-                  </svg>
-                  Submit Request
-                </>
-              )}
-            </button>
+          <div className="flex justify-end">
+            <Btn variant="primary" onClick={submit} loading={saving}>Submit Request</Btn>
           </div>
-        </div>
-      </form>
+        </CardBody>
+      </Card>
     </div>
   );
 }

@@ -1,17 +1,13 @@
 // src/app/AppShell.tsx
-// Updated: notification bell added to header
-import { ReactNode, useMemo, useState, useEffect, lazy, Suspense } from "react";
-import { useNavigate } from "react-router-dom";
-import { useAuth } from "@/hooks/useAuth";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { useTheme } from "@/context/ThemeContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { NotificationBell } from "@/components/NotificationBell";
 
-const ProfilePage = lazy(() => import("../pages/profile/ProfilePage"));
-
-type ClickNavItem = { label: string; onClick: () => void };
+// ─── Types ────────────────────────────────────────────────────────────────────
+type ClickNavItem   = { label: string; onClick: () => void };
 type ElementNavItem = { label: string; element: ReactNode };
-type NavItem = ClickNavItem | ElementNavItem;
+type NavItem        = ClickNavItem | ElementNavItem;
 
 type Props = {
   title: string;
@@ -24,55 +20,42 @@ function isElementItem(item: NavItem): item is ElementNavItem {
   return "element" in item;
 }
 
-const ROLE_COLORS: Record<string, string> = {
-  admin: "bg-rose-500",
-  corporate_approver: "bg-violet-500",
-  transport_supervisor: "bg-amber-500",
-  driver: "bg-emerald-500",
-  unit_head: "bg-sky-500",
-  staff: "bg-slate-400",
-};
-
+// ─── Role helpers ─────────────────────────────────────────────────────────────
 const ROLE_LABELS: Record<string, string> = {
-  admin: "Admin",
-  corporate_approver: "Corporate Approver",
-  transport_supervisor: "Transport Supervisor",
-  driver: "Driver",
-  unit_head: "Unit Head",
-  staff: "Staff",
+  admin:                "Administrator",
+  corporate_approver:   "Corporate",
+  transport_supervisor: "Transport",
+  driver:               "Driver",
+  unit_head:            "Unit Head",
+  staff:                "Staff",
 };
 
-const PROFILE_ITEM: ElementNavItem = {
-  label: "My Profile",
-  element: (
-    <Suspense fallback={<div className="flex items-center justify-center py-16"><div className="w-5 h-5 border-2 border-gray-900 border-t-transparent rounded-full animate-spin"/></div>}>
-      <ProfilePage />
-    </Suspense>
-  ),
+const ROLE_COLORS: Record<string, string> = {
+  admin:                "bg-[color:var(--purple)]",
+  corporate_approver:   "bg-[color:var(--accent)]",
+  transport_supervisor: "bg-[color:var(--green)]",
+  driver:               "bg-[color:var(--cyan)]",
+  unit_head:            "bg-[color:var(--amber)]",
+  staff:                "bg-[color:var(--text-muted)]",
 };
 
+// ─── AppShell ─────────────────────────────────────────────────────────────────
 export default function AppShell({ title, nav, navItems, children }: Props) {
-  const { profile } = useAuth();
-  const navigate = useNavigate();
+  const { theme, toggleTheme } = useTheme();
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [profile, setProfile] = useState<{ full_name: string; system_role: string } | null>(null);
 
-  const baseItems = useMemo<NavItem[]>(() => {
+  const items = useMemo<NavItem[]>(() => {
     if (navItems?.length) return navItems;
-    if (nav?.length) return nav;
+    if (nav?.length)      return nav;
     return [];
   }, [nav, navItems]);
 
-  const items = useMemo<NavItem[]>(() => [...baseItems, PROFILE_ITEM], [baseItems]);
-
-  const activeItem = items[activeIndex];
-  const activeLabel = activeItem?.label ?? title;
-
-  useEffect(() => {
-    const handler = () => { if (window.innerWidth >= 1024) setSidebarOpen(false); };
-    window.addEventListener("resize", handler);
-    return () => window.removeEventListener("resize", handler);
-  }, []);
+  const hasProfile    = items.length > 0 && items[items.length - 1].label.toLowerCase().includes("profile");
+  const baseItems     = hasProfile ? items.slice(0, -1) : items;
+  const isProfileActive = hasProfile && activeIndex === items.length - 1;
 
   const go = (i: number) => {
     setActiveIndex(i);
@@ -81,122 +64,235 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
     if (item && !isElementItem(item)) item.onClick();
   };
 
+  const activeItem  = items[activeIndex];
+  const activeLabel = activeItem?.label ?? title;
+
+  useEffect(() => {
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from("profiles")
+        .select("full_name, system_role")
+        .eq("user_id", user.id)
+        .single();
+      if (data) setProfile(data as any);
+    })();
+  }, []);
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
-    navigate("/login", { replace: true });
+    window.location.href = "/login";
   };
 
-  const roleColor = ROLE_COLORS[profile?.system_role ?? ""] ?? "bg-slate-400";
-  const roleLabel = ROLE_LABELS[profile?.system_role ?? ""] ?? (profile?.system_role ?? "");
-  const initials = profile?.full_name
-    ? profile.full_name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
+  const roleLabel = ROLE_LABELS[profile?.system_role ?? ""] ?? profile?.system_role ?? "";
+  const roleColor = ROLE_COLORS[profile?.system_role ?? ""] ?? "bg-[color:var(--text-muted)]";
+  const initials  = profile?.full_name
+    ? profile.full_name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()
     : "?";
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex">
-      {/* Mobile overlay */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-20 bg-black/40 backdrop-blur-sm lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
+  const ThemeToggle = () => (
+    <button
+      onClick={toggleTheme}
+      aria-label="Toggle theme"
+      className="p-2 rounded-lg text-[color:var(--text-muted)] hover:bg-[color:var(--surface-2)] hover:text-[color:var(--text)] transition-colors"
+    >
+      {theme === "dark" ? (
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <circle cx="12" cy="12" r="5" strokeWidth="2"/>
+          <path strokeLinecap="round" strokeWidth="2" d="M12 2v2m0 16v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M2 12h2m16 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+        </svg>
+      ) : (
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12.79A9 9 0 1111.21 3a7 7 0 109.79 9.79z"/>
+        </svg>
       )}
+    </button>
+  );
 
-      {/* Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 z-30 w-64 bg-white border-r border-gray-200 flex flex-col transition-transform duration-300 lg:translate-x-0 lg:static lg:z-auto ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
-        {/* Logo */}
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
-          <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
-            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
-            </svg>
-          </div>
-          <div>
-            <p className="font-bold text-gray-900 text-sm leading-tight">TMS</p>
-            <p className="text-xs text-gray-400">{title}</p>
-          </div>
-        </div>
+  return (
+    <div className="h-screen flex flex-col bg-[color:var(--bg)] overflow-hidden">
 
-        {/* Nav items */}
-        <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-          {items.map((item, i) => {
-            const isLast = i === items.length - 1; // Profile is last
-            const isActive = i === activeIndex;
-            return (
-              <button
-                key={item.label}
-                onClick={() => go(i)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left ${
-                  isActive
-                    ? "bg-black text-white"
-                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-                } ${isLast ? "mt-2 border-t border-gray-100 pt-4" : ""}`}
-              >
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </nav>
+      {/* ── Mobile top bar ── */}
+      <header className="lg:hidden flex items-center justify-between px-4 h-14 border-b border-[color:var(--border)] bg-[color:var(--surface)] shrink-0 z-30">
+        <button
+          onClick={() => setSidebarOpen(true)}
+          className="p-2 rounded-lg text-[color:var(--text-muted)] hover:bg-[color:var(--surface-2)] transition-colors"
+          aria-label="Open menu"
+        >
+          <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16"/>
+          </svg>
+        </button>
 
-        {/* User footer */}
-        <div className="px-4 py-3 border-t border-gray-100">
-          <div className="flex items-center gap-3">
-            <div className={`w-8 h-8 rounded-full ${roleColor} flex items-center justify-center text-white text-xs font-bold shrink-0`}>
-              {initials}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold text-gray-900 truncate">{profile?.full_name ?? "—"}</p>
-              <p className="text-[10px] text-gray-400">{roleLabel}</p>
-            </div>
-            <button
-              onClick={handleSignOut}
-              className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-              title="Sign out"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-      </aside>
+        <span className="text-sm font-semibold text-[color:var(--text)]">{activeLabel}</span>
 
-      {/* Main */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Top bar */}
-        <header className="sticky top-0 z-10 bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
-          {/* Hamburger */}
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="lg:hidden p-2 hover:bg-gray-100 rounded-xl transition-colors"
-          >
-            <svg className="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16"/>
-            </svg>
-          </button>
-
-          <h2 className="font-semibold text-gray-900 flex-1 truncate">{activeLabel}</h2>
-
-          {/* Notification bell */}
-          <NotificationBell />
-
-          {/* Avatar (mobile shortcut to profile) */}
-          <button
-            onClick={() => go(items.length - 1)}
-            className="w-8 h-8 rounded-full shrink-0"
-          >
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
+          {profile && (
             <div className={`w-8 h-8 rounded-full ${roleColor} flex items-center justify-center text-white text-xs font-bold`}>
               {initials}
             </div>
-          </button>
-        </header>
+          )}
+        </div>
+      </header>
 
-        {/* Page content */}
-        <main className="flex-1 px-4 sm:px-6 py-5 overflow-y-auto">
-          <ErrorBoundary>
-            {isElementItem(activeItem) ? activeItem.element : children}
-          </ErrorBoundary>
+      {/* ── Body ── */}
+      <div className="flex flex-1 overflow-hidden">
+
+        {/* Backdrop */}
+        {sidebarOpen && (
+          <div
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+
+        {/* ── Sidebar ── */}
+        <aside className={`
+          fixed inset-y-0 left-0 z-50 flex flex-col
+          w-72 lg:w-64 xl:w-72
+          bg-[color:var(--surface)] border-r border-[color:var(--border)]
+          transition-transform duration-200 ease-in-out
+          lg:static lg:z-auto lg:translate-x-0
+          ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
+        `}>
+
+          {/* Logo */}
+          <div className="flex items-center justify-between px-5 py-5 border-b border-[color:var(--border)] shrink-0">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-[color:var(--text)] flex items-center justify-center shrink-0">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <rect x="1" y="1" width="6" height="6" rx="1" fill="var(--bg)"/>
+                  <rect x="9" y="1" width="6" height="6" rx="1" fill="var(--bg)" opacity=".5"/>
+                  <rect x="1" y="9" width="6" height="6" rx="1" fill="var(--bg)" opacity=".5"/>
+                  <rect x="9" y="9" width="6" height="6" rx="1" fill="var(--bg)"/>
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-bold text-[color:var(--text)] leading-tight">TMS Portal</div>
+                <div className="text-[10px] text-[color:var(--text-muted)] uppercase tracking-widest truncate">{title}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              <ThemeToggle />
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="lg:hidden p-1.5 rounded-lg hover:bg-[color:var(--surface-2)] text-[color:var(--text-muted)] transition-colors"
+              >
+                <svg width="16" height="16" fill="none" viewBox="0 0 18 18">
+                  <path d="M4 4L14 14M14 4L4 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Nav */}
+          <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
+            {baseItems.map((item, i) => {
+              const isActive = i === activeIndex && !isProfileActive;
+              return (
+                <button
+                  key={i}
+                  onClick={() => go(i)}
+                  className={`
+                    w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-left
+                    transition-all min-h-[44px] group
+                    ${isActive
+                      ? "bg-[color:var(--text)] text-[color:var(--bg)] shadow-sm"
+                      : "text-[color:var(--text-muted)] hover:bg-[color:var(--surface-2)] hover:text-[color:var(--text)]"
+                    }
+                  `}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors
+                    ${isActive
+                      ? "bg-[color:var(--bg)]"
+                      : "bg-[color:var(--border-bright)] group-hover:bg-[color:var(--text-muted)]"
+                    }`}
+                  />
+                  {item.label}
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* Footer */}
+          <div className="border-t border-[color:var(--border)] px-4 py-4 shrink-0 space-y-1">
+            {hasProfile && profile && (
+              <button
+                onClick={() => go(items.length - 1)}
+                className={`w-full flex items-center gap-3 p-2 rounded-xl transition-colors min-h-[44px]
+                  ${isProfileActive ? "bg-[color:var(--surface-2)]" : "hover:bg-[color:var(--surface-2)]"}`}
+              >
+                <div className={`w-9 h-9 rounded-full ${roleColor} flex items-center justify-center text-white text-xs font-bold shrink-0`}>
+                  {initials}
+                </div>
+                <div className="min-w-0 text-left flex-1">
+                  <div className="text-sm font-medium text-[color:var(--text)] truncate">{profile.full_name}</div>
+                  <div className="text-[11px] text-[color:var(--text-muted)] truncate">{roleLabel}</div>
+                </div>
+                <svg className="w-3.5 h-3.5 text-[color:var(--text-muted)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/>
+                </svg>
+              </button>
+            )}
+
+            {!hasProfile && profile && (
+              <div className="flex items-center gap-3 p-2">
+                <div className={`w-9 h-9 rounded-full ${roleColor} flex items-center justify-center text-white text-xs font-bold shrink-0`}>
+                  {initials}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-[color:var(--text)] truncate">{profile.full_name}</div>
+                  <div className="text-[11px] text-[color:var(--text-muted)] truncate">{roleLabel}</div>
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={handleSignOut}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[color:var(--text-muted)] hover:bg-[color:var(--red)]/10 hover:text-[color:var(--red)] transition-colors min-h-[44px]"
+            >
+              <svg width="16" height="16" fill="none" viewBox="0 0 16 16">
+                <path d="M6 2H3a1 1 0 00-1 1v10a1 1 0 001 1h3M10 11l3-3-3-3M13 8H6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Sign out
+            </button>
+          </div>
+        </aside>
+
+        {/* ── Main content ── */}
+        <main className="flex-1 overflow-y-auto min-w-0 bg-[color:var(--bg)]">
+          <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto w-full">
+
+            {/* Desktop page header */}
+            <div className="hidden lg:flex items-center justify-between mb-6">
+  <div>
+    <h1 className="text-xl font-bold text-[color:var(--text)] tracking-tight">{activeLabel}</h1>
+    <p className="text-xs text-[color:var(--text-muted)] mt-0.5">{roleLabel}</p>
+  </div>
+  {profile && (
+    <button
+      onClick={() => hasProfile ? go(items.length - 1) : undefined}
+      title={hasProfile ? "Edit profile" : profile.full_name}
+      className="flex items-center gap-2.5 p-1.5 rounded-xl hover:bg-[color:var(--surface-2)] transition-colors group"
+    >
+      <span className="text-sm text-[color:var(--text-muted)] group-hover:text-[color:var(--text)] transition-colors">
+        {profile.full_name}
+      </span>
+      <div className={`w-9 h-9 rounded-full ${roleColor} flex items-center justify-center text-white text-xs font-bold shrink-0`}>
+        {initials}
+      </div>
+    </button>
+  )}
+</div>
+
+            <ErrorBoundary>
+              {activeItem && isElementItem(activeItem) ? activeItem.element : children}
+            </ErrorBoundary>
+          </div>
         </main>
+
       </div>
     </div>
   );

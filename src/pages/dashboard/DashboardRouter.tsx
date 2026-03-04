@@ -1,3 +1,4 @@
+// src/pages/dashboard/DashboardRouter.tsx
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import AdminLayout from "@/layouts/AdminLayout";
@@ -10,7 +11,6 @@ export default function DashboardRouter() {
   const { profile, loading, user } = useAuth();
   const [timedOut, setTimedOut] = useState(false);
 
-  // Safety net: if still loading after 6s, redirect to login
   useEffect(() => {
     const t = setTimeout(() => setTimedOut(true), 6000);
     return () => clearTimeout(t);
@@ -27,19 +27,29 @@ export default function DashboardRouter() {
 
   if (loading) {
     return (
-      <div style={{
-        minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
-        background: "#0f1117", flexDirection: "column", gap: 16,
-      }}>
-        <div style={{
-          width: 32, height: 32, border: "3px solid #2a3045",
-          borderTopColor: "#3b82f6", borderRadius: "50%",
-          animation: "spin 0.8s linear infinite",
-        }} />
-        <div style={{ fontFamily: "monospace", fontSize: 11, color: "#6b7a99", letterSpacing: "0.12em", textTransform: "uppercase" }}>
-          Loading TMS...
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "var(--bg)",
+          flexDirection: "column",
+          gap: 16,
+        }}
+      >
+        <div className="spinner" style={{ width: 32, height: 32, borderWidth: 3 }} />
+        <div
+          style={{
+            fontFamily: "'IBM Plex Mono', monospace",
+            fontSize: 11,
+            color: "var(--text-dim)",
+            letterSpacing: "0.12em",
+            textTransform: "uppercase",
+          }}
+        >
+          Loading TMS…
         </div>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
@@ -48,19 +58,29 @@ export default function DashboardRouter() {
 
   if (!profile) {
     return (
-      <div style={{
-        minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
-        background: "#0f1117", flexDirection: "column", gap: 16,
-      }}>
-        <div style={{ fontSize: 14, color: "#ef4444", marginBottom: 8 }}>
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "var(--bg)",
+          flexDirection: "column",
+          gap: 16,
+          padding: "0 24px",
+          textAlign: "center",
+        }}
+      >
+        <div style={{ fontSize: 14, color: "var(--status-error-fg)", marginBottom: 4 }}>
           No profile found for your account.
         </div>
-        <div style={{ fontSize: 12, color: "#6b7a99", maxWidth: 320, textAlign: "center" }}>
+        <div style={{ fontSize: 12, color: "var(--text-dim)", maxWidth: 320 }}>
           Your account exists but has no profile yet. Ask your administrator to approve your access request.
         </div>
         <button
           onClick={() => { window.location.href = "/login"; }}
-          style={{ marginTop: 8, padding: "8px 16px", background: "transparent", border: "1px solid #2a3045", borderRadius: 6, color: "#6b7a99", cursor: "pointer", fontSize: 13 }}
+          className="btn btn-ghost"
+          style={{ marginTop: 8 }}
         >
           Sign Out
         </button>

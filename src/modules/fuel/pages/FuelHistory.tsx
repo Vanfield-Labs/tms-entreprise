@@ -1,103 +1,95 @@
+// src/modules/fuel/pages/FuelHistory.tsx
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { fmtDateTime, statusBadge } from "@/lib/utils";
+import { PageSpinner, EmptyState, Badge, Card, SearchInput } from "@/components/TmsUI";
+import { fmtDateTime, fmtMoney } from "@/lib/utils";
 
-const STATUS_FILTERS = ["all", "draft", "submitted", "approved", "rejected", "recorded"];
+const STATUS_OPTS = ["all","draft","submitted","approved","rejected","recorded"];
 
 export default function FuelHistory() {
-  const [rows, setRows] = useState<any[]>([]);
+  const [rows,    setRows]    = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [search, setSearch] = useState("");
+  const [q,       setQ]       = useState("");
+  const [status,  setStatus]  = useState("all");
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
-        .from("fuel_requests")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(500);
+      const { data } = await supabase.from("fuel_requests").select("*").order("created_at", { ascending: false }).limit(500);
       setRows(data ?? []);
       setLoading(false);
     })();
   }, []);
 
   const filtered = rows.filter(r => {
-    if (statusFilter !== "all" && r.status !== statusFilter) return false;
-    if (search && !JSON.stringify(r).toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
+    const matchQ = !q || (r.purpose ?? "").toLowerCase().includes(q.toLowerCase());
+    const matchS = status === "all" || r.status === status;
+    return matchQ && matchS;
   });
 
+  if (loading) return <PageSpinner />;
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <div className="page-header">
-        <h1 className="page-title">Fuel History</h1>
-        <p className="page-sub">Complete log of all fuel requests</p>
-      </div>
-
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-        <input
-          className="tms-input"
-          style={{ maxWidth: 240 }}
-          placeholder="Search..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-          {STATUS_FILTERS.map(s => (
-            <button key={s} className={`btn btn-sm ${statusFilter === s ? "btn-primary" : "btn-ghost"}`} onClick={() => setStatusFilter(s)}>
-              {s}
-            </button>
-          ))}
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex-1">
+          <SearchInput value={q} onChange={setQ} placeholder="Search purpose…" />
         </div>
-        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "var(--text-muted)", marginLeft: "auto" }}>
-          {filtered.length} records
-        </span>
+        <select value={status} onChange={e => setStatus(e.target.value)} className="tms-select sm:w-40">
+          {STATUS_OPTS.map(s => <option key={s} value={s}>{s === "all" ? "All statuses" : s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+        </select>
       </div>
 
-      <div className="card">
-        {loading ? <div className="loading-row">Loading...</div> : (
-          <table className="tms-table">
-            <thead>
-              <tr>
-                <th>Status</th>
-                <th>Fuel</th>
-                <th>Liters</th>
-                <th>Est. Cost</th>
-                <th>Actual Cost</th>
-                <th>Purpose</th>
-                <th>Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(r => (
-                <tr key={r.id}>
-                  <td><span className={statusBadge(r.status)}>{r.status}</span></td>
-                  <td style={{ textTransform: "capitalize", fontSize: 12 }}>{r.fuel_type || "—"}</td>
-                  <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>{r.liters ?? "—"}</td>
-                  <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>
-                    {r.estimated_cost ? `GHS ${Number(r.estimated_cost).toLocaleString()}` : "—"}
-                  </td>
-                  <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: r.actual_cost ? "var(--green)" : "var(--text-dim)" }}>
-                    {r.actual_cost ? `GHS ${Number(r.actual_cost).toLocaleString()}` : "—"}
-                  </td>
-                  <td style={{ fontSize: 12, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {r.purpose || "—"}
-                  </td>
-                  <td style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap" }}>
-                    {fmtDateTime(r.created_at)}
-                  </td>
-                </tr>
-              ))}
-              {filtered.length === 0 && (
-                <tr><td colSpan={7}>
-                  <div className="empty-state">No records found</div>
-                </td></tr>
-              )}
-            </tbody>
-          </table>
-        )}
-      </div>
+      <p className="text-xs text-[color:var(--text-muted)]">{filtered.length} record{filtered.length !== 1 ? "s" : ""}</p>
+
+      {filtered.length === 0 ? (
+        <EmptyState title="No records found" subtitle="Try adjusting your filters" />
+      ) : (
+        <>
+          {/* Mobile */}
+          <div className="sm:hidden space-y-3">
+            {filtered.map(r => (
+              <Card key={r.id}>
+                <div className="p-4 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-semibold text-[color:var(--text)] flex-1">{r.purpose || "—"}</p>
+                    <Badge status={r.status} />
+                  </div>
+                  <div className="flex gap-4 text-xs text-[color:var(--text-muted)]">
+                    <span>{r.fuel_type ?? "—"}</span>
+                    <span>{r.liters ?? "—"}L</span>
+                    <span>{fmtMoney(r.actual_cost ?? r.estimated_cost)}</span>
+                  </div>
+                  <p className="text-xs text-[color:var(--text-dim)]">{fmtDateTime(r.created_at)}</p>
+                </div>
+              </Card>
+            ))}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden sm:block card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="tms-table">
+                <thead>
+                  <tr>{["Purpose","Type","Litres","Est.","Actual","Status","Date"].map(h => <th key={h}>{h}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {filtered.map(r => (
+                    <tr key={r.id}>
+                      <td className="max-w-[160px] truncate font-medium">{r.purpose || "—"}</td>
+                      <td className="capitalize">{r.fuel_type ?? "—"}</td>
+                      <td>{r.liters ?? "—"}</td>
+                      <td>{fmtMoney(r.estimated_cost)}</td>
+                      <td>{fmtMoney(r.actual_cost)}</td>
+                      <td><Badge status={r.status} /></td>
+                      <td className="whitespace-nowrap text-[color:var(--text-muted)]">{fmtDateTime(r.created_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

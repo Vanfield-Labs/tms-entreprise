@@ -1,124 +1,93 @@
 // src/modules/bookings/pages/CloseTrips.tsx
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { fmtDate } from "@/lib/utils";
+import { PageSpinner, EmptyState, Badge, Card, CountPill, Btn } from "@/components/TmsUI";
+import { fmtDate, fmtDateTime } from "@/lib/utils";
 
 type Booking = {
-  id: string;
-  purpose: string;
-  trip_date: string;
-  status: string;
-  pickup_location: string;
-  dropoff_location: string;
+  id: string; purpose: string; trip_date: string; trip_time: string;
+  pickup_location: string; dropoff_location: string;
+  status: string; created_at: string;
+  vehicle_plate?: string; driver_name?: string;
 };
 
 export default function CloseTrips() {
-  const [items, setItems] = useState<Booking[]>([]);
+  const [trips,   setTrips]   = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
-  const [closing, setClosing] = useState<string | null>(null);
-  const [closed, setClosed] = useState<string[]>([]);
+  const [closing, setClosing] = useState<Record<string, boolean>>({});
 
   const load = async () => {
+    setLoading(true);
     const { data } = await supabase
       .from("bookings")
-      .select("id,purpose,trip_date,status,pickup_location,dropoff_location")
+      .select("id,purpose,trip_date,trip_time,pickup_location,dropoff_location,status,created_at,vehicles(plate_number),drivers(profiles(full_name))")
       .eq("status", "completed")
-      .order("trip_date", { ascending: false });
-    setItems((data as Booking[]) || []);
+      .order("trip_date", { ascending: false })
+      .limit(100);
+    setTrips(((data as any[]) || []).map(b => ({
+      ...b,
+      vehicle_plate: b.vehicles?.plate_number ?? null,
+      driver_name:   b.drivers?.profiles?.full_name ?? null,
+    })));
     setLoading(false);
   };
 
   useEffect(() => { load(); }, []);
 
-  const closeTrip = async (id: string) => {
-    setClosing(id);
-    await supabase.rpc("close_booking", { p_booking_id: id });
-    setClosed((prev) => [...prev, id]);
-    await load();
-    setClosing(null);
+  const close = async (id: string) => {
+    setClosing(m => ({ ...m, [id]: true }));
+    try {
+      await supabase.rpc("close_booking", { p_booking_id: id });
+      await load();
+    } finally { setClosing(m => ({ ...m, [id]: false })); }
   };
+
+  if (loading) return <PageSpinner />;
 
   return (
     <div className="space-y-4">
-      <div className="page-header">
-        <h1 className="page-title">Close Completed Trips</h1>
-        <p className="page-sub">
-          {items.length} trip{items.length !== 1 ? "s" : ""} awaiting closure
-        </p>
-      </div>
-
-      {loading ? (
-        <LoadingSpinner />
-      ) : items.length === 0 ? (
-        <EmptyState />
+      {trips.length === 0 ? (
+        <EmptyState
+          title="No completed trips"
+          subtitle="Trips marked as completed will appear here for closing"
+          icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7"/></svg>}
+        />
       ) : (
-        <div className="space-y-3">
-          {items.map((b) => (
-            <div key={b.id} className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-100 flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="font-semibold text-sm text-gray-900 truncate">{b.purpose}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    Trip on {fmtDate(b.trip_date)}
-                  </p>
+        <>
+          <div className="flex items-center gap-2">
+            <CountPill n={trips.length} color="green" />
+            <span className="text-sm text-[color:var(--text-muted)]">trip{trips.length !== 1 ? "s" : ""} ready to close</span>
+          </div>
+
+          <div className="space-y-3">
+            {trips.map(t => (
+              <Card key={t.id}>
+                <div className="px-4 py-3 border-b border-[color:var(--border)] bg-[color:var(--green)]/10">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-semibold text-sm text-[color:var(--text)]">{t.purpose}</p>
+                      <p className="text-xs text-[color:var(--text-muted)] mt-0.5">{fmtDate(t.trip_date)} at {t.trip_time}</p>
+                    </div>
+                    <Badge status={t.status} />
+                  </div>
                 </div>
-                <span className="shrink-0 inline-flex px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-medium capitalize">
-                  {b.status}
-                </span>
-              </div>
-              <div className="px-4 py-3 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-2 text-xs text-gray-500 min-w-0">
-                  <svg className="w-3.5 h-3.5 shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
-                  </svg>
-                  <span className="truncate">{b.pickup_location} → {b.dropoff_location}</span>
+
+                <div className="px-4 py-3 space-y-1.5 border-b border-[color:var(--border)]">
+                  <p className="text-xs text-[color:var(--text-muted)] truncate">{t.pickup_location} → {t.dropoff_location}</p>
+                  {t.vehicle_plate && <p className="text-xs text-[color:var(--accent)]">🚗 {t.vehicle_plate}</p>}
+                  {t.driver_name && <p className="text-xs text-[color:var(--text-muted)]">👤 {t.driver_name}</p>}
                 </div>
-                <button
-                  onClick={() => closeTrip(b.id)}
-                  disabled={closing === b.id}
-                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-40"
-                >
-                  {closing === b.id ? (
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
-                      Closing…
-                    </span>
-                  ) : (
-                    <>
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      Close Trip
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+
+                <div className="p-4">
+                  <Btn variant="primary" className="w-full" loading={closing[t.id]} onClick={() => close(t.id)}>
+                    Close Trip ✓
+                  </Btn>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </>
       )}
-    </div>
-  );
-}
-
-function LoadingSpinner() {
-  return (
-    <div className="flex items-center justify-center py-16">
-      <div className="w-6 h-6 border-2 border-gray-900 border-t-transparent rounded-full animate-spin" />
-    </div>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="text-center py-16 text-gray-400">
-      <div className="w-12 h-12 mx-auto mb-3 rounded-2xl bg-emerald-50 flex items-center justify-center">
-        <svg className="w-6 h-6 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      </div>
-      <p className="text-sm font-medium text-gray-600">All caught up!</p>
-      <p className="text-xs mt-1">No completed trips awaiting closure</p>
     </div>
   );
 }

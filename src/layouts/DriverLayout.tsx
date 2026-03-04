@@ -1,19 +1,19 @@
 // src/layouts/DriverLayout.tsx
 import AppShell from "../app/AppShell";
+import DriverTrips from "../modules/trips/pages/DriverTrips";
 import MyShifts from "../modules/shifts/pages/MyShifts";
-import DriverTrips from "@/modules/trips/pages/DriverTrips";
-import MyFuelRequests from "@/modules/fuel/pages/MyFuelRequests";
-import CreateFuelRequest from "@/modules/fuel/pages/CreateFuelRequest";
+import CreateFuelRequest from "../modules/fuel/pages/CreateFuelRequest";
+import MyFuelRequests from "../modules/fuel/pages/MyFuelRequests";
 
 export default function DriverLayout() {
   return (
     <AppShell
       title="Driver"
       navItems={[
-        { label: "My Trips", element: <DriverTrips /> },
-        { label: "My Shifts", element: <MyShifts /> },
+        { label: "My Trips",    element: <DriverTrips /> },
+        { label: "My Shifts",   element: <MyShifts /> },
         {
-          label: "Fuel Requests",
+          label: "Fuel Request",
           element: (
             <div className="space-y-6">
               <CreateFuelRequest />
