@@ -12,6 +12,7 @@ import MyFuelRequests from "../modules/fuel/pages/MyFuelRequests";
 import VehicleManagement from "../modules/vehicles/pages/VehicleManagement";
 import DriverManagement from "../modules/drivers/pages/DriverManagement";
 import ReportsDashboard from "../modules/reports/pages/ReportsDashboard";
+import ProfilePage from "@/pages/profile/ProfilePage"
 
 export default function TransportLayout() {
   return (
@@ -37,6 +38,7 @@ export default function TransportLayout() {
         { label: "Vehicles",        element: <VehicleManagement /> },
         { label: "Drivers",         element: <DriverManagement /> },
         { label: "Reports",         element: <ReportsDashboard /> },
+        { label: "Profile", element: <ProfilePage /> }
       ]}
     />
   );

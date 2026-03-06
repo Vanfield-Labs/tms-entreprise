@@ -4,6 +4,7 @@ import DriverTrips from "../modules/trips/pages/DriverTrips";
 import MyShifts from "../modules/shifts/pages/MyShifts";
 import CreateFuelRequest from "../modules/fuel/pages/CreateFuelRequest";
 import MyFuelRequests from "../modules/fuel/pages/MyFuelRequests";
+import ProfilePage from "@/pages/profile/ProfilePage"
 
 export default function DriverLayout() {
   return (
@@ -21,6 +22,7 @@ export default function DriverLayout() {
             </div>
           ),
         },
+        { label: "Profile", element: <ProfilePage /> }
       ]}
     />
   );

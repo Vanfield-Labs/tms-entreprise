@@ -8,6 +8,7 @@ import DriverManagement from "@/modules/drivers/pages/DriverManagement";
 import DivisionManagement from "@/modules/divisions/pages/DivisionManagement";
 import MaintenanceHistory from "@/modules/maintenance/pages/MaintenanceHistory";
 import AdminUserManagement from "@/modules/users/pages/AdminUserManagement";
+import ProfilePage from "@/pages/profile/ProfilePage"
 
 export default function AdminLayout() {
   return (
@@ -22,6 +23,7 @@ export default function AdminLayout() {
         { label: "Drivers", element: <DriverManagement /> },
         { label: "Divisions & Units", element: <DivisionManagement /> },
         { label: "Audit Logs", element: <AuditLogs /> },
+        { label: "Profile", element: <ProfilePage /> }
       ]}
     />
   );

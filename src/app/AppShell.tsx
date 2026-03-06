@@ -218,24 +218,7 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
 
           {/* Footer */}
           <div className="border-t border-[color:var(--border)] px-4 py-4 shrink-0 space-y-1">
-            {hasProfile && profile && (
-              <button
-                onClick={() => go(items.length - 1)}
-                className={`w-full flex items-center gap-3 p-2 rounded-xl transition-colors min-h-[44px]
-                  ${isProfileActive ? "bg-[color:var(--surface-2)]" : "hover:bg-[color:var(--surface-2)]"}`}
-              >
-                <div className={`w-9 h-9 rounded-full ${roleColor} flex items-center justify-center text-white text-xs font-bold shrink-0`}>
-                  {initials}
-                </div>
-                <div className="min-w-0 text-left flex-1">
-                  <div className="text-sm font-medium text-[color:var(--text)] truncate">{profile.full_name}</div>
-                  <div className="text-[11px] text-[color:var(--text-muted)] truncate">{roleLabel}</div>
-                </div>
-                <svg className="w-3.5 h-3.5 text-[color:var(--text-muted)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/>
-                </svg>
-              </button>
-            )}
+          
 
             {!hasProfile && profile && (
               <div className="flex items-center gap-3 p-2">

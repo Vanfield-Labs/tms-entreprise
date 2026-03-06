@@ -7,6 +7,7 @@ import ReportMaintenance from "../modules/maintenance/pages/ReportMaintenance";
 import NewUserRequest from "../modules/users/pages/NewUserRequest";
 import CreateFuelRequest from "@/modules/fuel/pages/CreateFuelRequest";
 import FuelRequests from "../modules/fuel/pages/FuelRequests";
+import ProfilePage from "@/pages/profile/ProfilePage"
 
 export default function DepartmentLayout() {
   return (
@@ -27,6 +28,7 @@ export default function DepartmentLayout() {
         },
         { label: "Report Maintenance", element: <ReportMaintenance /> },
         { label: "Request User", element: <NewUserRequest /> },
+        { label: "Profile", element: <ProfilePage /> }
       ]}
     />
   );
