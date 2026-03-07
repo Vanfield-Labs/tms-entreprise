@@ -1,9 +1,10 @@
 // src/modules/drivers/pages/DriverManagement.tsx
-// FIX #2: Avoid stack depth – no nested inserts that trigger recursive DB calls
-// FIX #1: Full dark mode via CSS variables only
-// FIX #11: Team, role (group leader/assistant/member), route assignment in driver form
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import {
+  PageSpinner, EmptyState, Badge, Card, SearchInput,
+  Field, Input, Select, Btn, Modal, ConfirmDialog, TabBar, ExpiryPill,
+} from "@/components/TmsUI";
 import { fmtDate } from "@/lib/utils";
 
 type Driver = {
@@ -11,131 +12,146 @@ type Driver = {
   full_name: string | null;
   license_number: string;
   license_expiry: string | null;
-  license_class: string | null;
   employment_status: string;
   user_id: string | null;
-  phone: string | null;
-  team_id: string | null;
-  team_name: string | null;
-  team_role: string | null;
-  route_id: string | null;
-  route_name: string | null;
-  driver_type: string | null;
-  notes: string | null;
 };
-
-type Team  = { id: string; name: string };
-type Route = { id: string; name: string; route_type: string };
-type UserProfile = { user_id: string; full_name: string };
 
 type FormData = {
   user_id: string;
   license_number: string;
   license_expiry: string;
-  license_class: string;
   employment_status: string;
-  phone: string;
-  team_id: string;
-  team_role: string;
-  route_id: string;
-  driver_type: string;
-  notes: string;
 };
 
 const EMPTY: FormData = {
-  user_id: "", license_number: "", license_expiry: "", license_class: "",
-  employment_status: "active", phone: "", team_id: "", team_role: "member",
-  route_id: "", driver_type: "tv", notes: "",
+  user_id: "", license_number: "", license_expiry: "", employment_status: "active",
 };
 
 const EMP_STATUSES = ["all", "active", "inactive", "suspended", "on_leave"];
-const TEAM_ROLES   = [
-  { value: "leader",    label: "Group Leader" },
-  { value: "assistant", label: "Assistant"    },
-  { value: "member",    label: "Member"       },
-];
-const DRIVER_TYPES = [
-  { value: "tv",    label: "TV Driver"    },
-  { value: "radio", label: "Radio Driver" },
-];
-const LICENSE_CLASSES = ["A", "B", "C", "D", "E"];
 
 function daysLeft(expiry: string | null): number | null {
   if (!expiry) return null;
-  return Math.floor((new Date(expiry).getTime() - Date.now()) / 86400000);
+  return Math.floor((new Date(expiry).getTime() - Date.now()) / 86_400_000);
 }
 
+// ─── Expiry Alert Banner ──────────────────────────────────────────────────────
+// A polished card-style banner with a bold colour stripe on the left.
+function ExpiryBanner({
+  variant,
+  drivers,
+}: {
+  variant: "expired" | "expiring";
+  drivers: Driver[];
+}) {
+  if (drivers.length === 0) return null;
+
+  const isExpired = variant === "expired";
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 14,
+        padding: "14px 16px",
+        borderRadius: 14,
+        background: isExpired
+          ? "rgba(220,38,38,0.07)"
+          : "rgba(217,119,6,0.07)",
+        border: `1px solid ${isExpired ? "rgba(220,38,38,0.35)" : "rgba(217,119,6,0.35)"}`,
+        borderLeft: `4px solid ${isExpired ? "var(--red)" : "var(--amber)"}`,
+      }}
+    >
+      {/* Icon */}
+      <div style={{ fontSize: 20, lineHeight: 1, paddingTop: 1, flexShrink: 0 }}>
+        {isExpired ? "🚨" : "⏰"}
+      </div>
+
+      {/* Content */}
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <p style={{
+          fontSize: 13,
+          fontWeight: 700,
+          color: isExpired ? "var(--red)" : "var(--amber)",
+          marginBottom: 4,
+        }}>
+          {isExpired
+            ? `${drivers.length} licence${drivers.length > 1 ? "s" : ""} expired`
+            : `${drivers.length} licence${drivers.length > 1 ? "s" : ""} expiring within 30 days`}
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px" }}>
+          {drivers.map(d => (
+            <span
+              key={d.id}
+              style={{
+                fontSize: 12,
+                color: "var(--text-muted)",
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              <span style={{ fontWeight: 600, color: "var(--text)" }}>
+                {d.full_name ?? d.license_number}
+              </span>
+              {d.license_expiry && (
+                <span style={{
+                  fontFamily: "'IBM Plex Mono', monospace",
+                  fontSize: 11,
+                  opacity: 0.8,
+                }}>
+                  · {fmtDate(d.license_expiry)}
+                </span>
+              )}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 export default function DriverManagement() {
-  const [drivers,      setDrivers]      = useState<Driver[]>([]);
-  const [teams,        setTeams]        = useState<Team[]>([]);
-  const [routes,       setRoutes]       = useState<Route[]>([]);
-  const [userProfiles, setUserProfiles] = useState<UserProfile[]>([]);
-  const [loading,      setLoading]      = useState(true);
-  const [showForm,     setShowForm]     = useState(false);
-  const [editingId,    setEditingId]    = useState<string | null>(null);
-  const [form,         setForm]         = useState<FormData>(EMPTY);
-  const [saving,       setSaving]       = useState(false);
-  const [error,        setError]        = useState<string | null>(null);
-  const [q,            setQ]            = useState("");
-  const [tab,          setTab]          = useState("all");
+  const [drivers,   setDrivers]   = useState<Driver[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [showForm,  setShowForm]  = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form,      setForm]      = useState<FormData>(EMPTY);
+  const [saving,    setSaving]    = useState(false);
+  const [error,     setError]     = useState<string | null>(null);
+  const [q,         setQ]         = useState("");
+  const [tab,       setTab]       = useState("all");
+  const [deleteId,  setDeleteId]  = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
 
-    // FIX #2: Do NOT join profiles via foreign key in the same query.
-    // Split into separate queries to avoid recursive trigger cascade.
-    const [{ data: driverData }, { data: teamData }, { data: routeData }] = await Promise.all([
-      supabase.from("drivers")
-        .select("id,user_id,license_number,license_expiry,license_class,employment_status,phone,team_id,team_role,route_id,driver_type,notes,created_at")
-        .order("license_number"),
-      supabase.from("driver_teams").select("id,name").order("name"),
-      supabase.from("evening_routes").select("id,name,route_type").order("route_type,name"),
-    ]);
+    const { data: driverData } = await supabase
+      .from("drivers")
+      .select("id, user_id, license_number, license_expiry, employment_status, created_at")
+      .order("license_number");
 
-    const rows    = (driverData as any[]) || [];
-    const teamArr = (teamData  as Team[]) || [];
-    const routeArr = (routeData as Route[]) || [];
-    setTeams(teamArr);
-    setRoutes(routeArr);
+    const rows = (driverData as any[]) || [];
 
-    const teamMap  = Object.fromEntries(teamArr.map(t => [t.id, t.name]));
-    const routeMap = Object.fromEntries(routeArr.map(r => [r.id, r.name]));
-
-    // Fetch profiles separately
-    const userIds = rows.map((d: any) => d.user_id).filter(Boolean);
+    const userIds = rows.map(d => d.user_id).filter(Boolean);
     let nameMap: Record<string, string> = {};
     if (userIds.length > 0) {
-      const { data: profiles } = await supabase
+      const { data: profileData } = await supabase
         .from("profiles")
-        .select("user_id,full_name")
+        .select("user_id, full_name")
         .in("user_id", userIds);
-      nameMap = Object.fromEntries(((profiles as any[]) || []).map(p => [p.user_id, p.full_name]));
+      nameMap = Object.fromEntries(
+        ((profileData as any[]) || []).map(p => [p.user_id, p.full_name])
+      );
     }
 
-    // Fetch all active user profiles for the user_id picker
-    const { data: allProfiles } = await supabase
-      .from("profiles")
-      .select("user_id,full_name")
-      .eq("system_role", "driver")
-      .order("full_name");
-    setUserProfiles((allProfiles as UserProfile[]) || []);
-
-    const enriched: Driver[] = rows.map((d: any) => ({
-      id:               d.id,
-      user_id:          d.user_id,
-      license_number:   d.license_number,
-      license_expiry:   d.license_expiry,
-      license_class:    d.license_class,
+    const enriched: Driver[] = rows.map(d => ({
+      id:                d.id,
+      user_id:           d.user_id,
+      license_number:    d.license_number,
+      license_expiry:    d.license_expiry,
       employment_status: d.employment_status,
-      phone:            d.phone,
-      team_id:          d.team_id,
-      team_name:        d.team_id ? (teamMap[d.team_id] ?? null) : null,
-      team_role:        d.team_role,
-      route_id:         d.route_id,
-      route_name:       d.route_id ? (routeMap[d.route_id] ?? null) : null,
-      driver_type:      d.driver_type,
-      notes:            d.notes,
-      full_name:        d.user_id ? (nameMap[d.user_id] ?? null) : null,
+      full_name:         d.user_id ? (nameMap[d.user_id] ?? null) : null,
     }));
 
     setDrivers(enriched);
@@ -144,20 +160,16 @@ export default function DriverManagement() {
 
   useEffect(() => { load(); }, []);
 
-  const openAdd = () => { setForm(EMPTY); setEditingId(null); setError(null); setShowForm(true); };
+  const openAdd = () => {
+    setForm(EMPTY); setEditingId(null); setError(null); setShowForm(true);
+  };
+
   const openEdit = (d: Driver) => {
     setForm({
-      user_id:           d.user_id || "",
+      user_id:           d.user_id ?? "",
       license_number:    d.license_number,
-      license_expiry:    d.license_expiry || "",
-      license_class:     d.license_class || "",
+      license_expiry:    d.license_expiry ?? "",
       employment_status: d.employment_status,
-      phone:             d.phone || "",
-      team_id:           d.team_id || "",
-      team_role:         d.team_role || "member",
-      route_id:          d.route_id || "",
-      driver_type:       d.driver_type || "tv",
-      notes:             d.notes || "",
     });
     setEditingId(d.id); setError(null); setShowForm(true);
   };
@@ -166,359 +178,203 @@ export default function DriverManagement() {
     if (!form.license_number.trim()) { setError("Licence number is required."); return; }
     setSaving(true); setError(null);
     try {
-      // FIX #2: Only update the drivers table directly. No cascading profile writes here.
-      const payload: any = {
+      const payload = {
         user_id:           form.user_id.trim() || null,
         license_number:    form.license_number.trim().toUpperCase(),
         license_expiry:    form.license_expiry || null,
-        license_class:     form.license_class || null,
         employment_status: form.employment_status,
-        phone:             form.phone.trim() || null,
-        team_id:           form.team_id || null,
-        team_role:         form.team_role || "member",
-        route_id:          form.route_id || null,
-        driver_type:       form.driver_type || "tv",
-        notes:             form.notes.trim() || null,
       };
-
       const { error: e } = editingId
         ? await supabase.from("drivers").update(payload).eq("id", editingId)
         : await supabase.from("drivers").insert(payload);
-
       if (e) throw e;
-      setShowForm(false);
-      await load();
-    } catch (e: any) {
-      setError(e.message ?? "Save failed.");
-    } finally {
-      setSaving(false);
-    }
+      setShowForm(false); await load();
+    } catch (e: any) { setError(e.message ?? "Save failed."); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (id: string) => {
+    await supabase.from("drivers").delete().eq("id", id);
+    setDeleteId(null); await load();
   };
 
   const f = (k: keyof FormData, v: string) => setForm(p => ({ ...p, [k]: v }));
+
+  // Expiry buckets
+  const expired     = drivers.filter(d => { const n = daysLeft(d.license_expiry); return n !== null && n < 0; });
+  const expiringSoon= drivers.filter(d => { const n = daysLeft(d.license_expiry); return n !== null && n >= 0 && n <= 30; });
 
   const tabs = EMP_STATUSES.map(s => ({
     value: s,
     label: s === "all" ? "All" : s.replace("_", " ").replace(/^\w/, c => c.toUpperCase()),
   }));
-
-  const counts = Object.fromEntries(
+  const counts: Record<string, number> = Object.fromEntries(
     EMP_STATUSES.map(s => [s, s === "all" ? drivers.length : drivers.filter(d => d.employment_status === s).length])
   );
+  const filtered = drivers.filter(d => {
+    const matchQ = !q || [d.full_name ?? "", d.license_number].join(" ").toLowerCase().includes(q.toLowerCase());
+    return matchQ && (tab === "all" || d.employment_status === tab);
+  });
 
-  const expired     = drivers.filter(d => { const n = daysLeft(d.license_expiry); return n !== null && n < 0; });
-  const expiringSoon = drivers.filter(d => { const n = daysLeft(d.license_expiry); return n !== null && n >= 0 && n <= 30; });
-
-  const filtered = drivers
-    .filter(d => tab === "all" || d.employment_status === tab)
-    .filter(d => !q || [d.full_name, d.license_number, d.phone, d.team_name].join(" ").toLowerCase().includes(q.toLowerCase()));
-
-  if (loading) {
-    return <div className="flex items-center justify-center py-20"><div className="spinner" /></div>;
-  }
+  if (loading) return <PageSpinner />;
 
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="page-header" style={{ marginBottom: 0 }}>
-          <h1 className="page-title">Driver Management</h1>
-          <p className="page-sub">{drivers.length} driver{drivers.length !== 1 ? "s" : ""} registered</p>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="page-title">Drivers</h1>
+          <p className="text-xs text-[color:var(--text-muted)] mt-0.5">{drivers.length} total</p>
         </div>
-        <button className="btn btn-primary" onClick={openAdd}>+ Add Driver</button>
+        <Btn variant="primary" onClick={openAdd}>+ Add Driver</Btn>
       </div>
 
-      {/* Expiry alerts */}
-      {expired.length > 0 && (
-        <div className="alert alert-error">
-          <span className="alert-icon">⚠️</span>
-          <span className="alert-content">
-            <strong>{expired.length}</strong> licence{expired.length > 1 ? "s have" : " has"} expired: {expired.map(d => d.license_number).join(", ")}
-          </span>
-        </div>
-      )}
-      {expiringSoon.length > 0 && (
-        <div className="alert alert-amber">
-          <span className="alert-icon">⏰</span>
-          <span className="alert-content">
-            <strong>{expiringSoon.length}</strong> licence{expiringSoon.length > 1 ? "s expire" : " expires"} within 30 days: {expiringSoon.map(d => d.license_number).join(", ")}
-          </span>
-        </div>
-      )}
+      {/* ── Expiry banners ── */}
+      <ExpiryBanner variant="expired"  drivers={expired} />
+      <ExpiryBanner variant="expiring" drivers={expiringSoon} />
 
-      {/* Tabs */}
-      <div className="tab-group">
-        {tabs.map(t => (
-          <button
-            key={t.value}
-            className={`tab-item ${tab === t.value ? "active" : ""}`}
-            onClick={() => setTab(t.value)}
-          >
-            {t.label}
-            {counts[t.value] > 0 && <span className="count-pill">{counts[t.value]}</span>}
-          </button>
-        ))}
-      </div>
+      {/* Filters */}
+      <TabBar tabs={tabs} active={tab} onChange={setTab} counts={counts} />
+      <SearchInput value={q} onChange={setQ} placeholder="Search name or licence…" />
 
-      {/* Search */}
-      <input
-        className="tms-input max-w-xs"
-        placeholder="Search name, licence, team…"
-        value={q}
-        onChange={e => setQ(e.target.value)}
-      />
-
-      {/* Mobile cards */}
-      <div className="sm:hidden space-y-3">
-        {filtered.length === 0 ? (
-          <div className="card p-8 text-center" style={{ color: "var(--text-muted)" }}>No drivers found.</div>
-        ) : filtered.map(d => {
-          const days = daysLeft(d.license_expiry);
-          return (
-            <div key={d.id} className="card p-4 space-y-3">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 15, color: "var(--text)" }}>
-                    {d.full_name ?? d.license_number}
-                  </div>
-                  <div style={{ fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", color: "var(--text-muted)" }}>
-                    {d.license_number}{d.license_class ? ` · Class ${d.license_class}` : ""}
-                  </div>
-                </div>
-                <span className={`badge badge-${d.employment_status === "active" ? "approved" : d.employment_status === "suspended" ? "rejected" : "closed"}`}>
-                  {d.employment_status.replace("_", " ")}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div style={{ fontSize: 12 }}>
-                  <div style={{ color: "var(--text-dim)" }}>Team</div>
-                  <div style={{ color: "var(--text)" }}>
-                    {d.team_name ?? "—"}
-                    {d.team_role && d.team_name && (
-                      <span style={{ color: "var(--text-muted)", marginLeft: 4 }}>· {d.team_role}</span>
+      {/* List */}
+      {filtered.length === 0 ? (
+        <EmptyState title="No drivers found" subtitle="Try adjusting your search or filters" />
+      ) : (
+        <>
+          {/* ── Mobile cards ── */}
+          <div className="sm:hidden space-y-3">
+            {filtered.map(d => {
+              const days = daysLeft(d.license_expiry);
+              return (
+                <Card key={d.id}>
+                  <div className="p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-[color:var(--text)] truncate">
+                          {d.full_name ?? <span className="text-[color:var(--text-dim)] italic">No account linked</span>}
+                        </p>
+                        <p className="text-xs text-[color:var(--text-muted)] font-mono mt-0.5">{d.license_number}</p>
+                      </div>
+                      <Badge status={d.employment_status} />
+                    </div>
+                    {d.license_expiry && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-[color:var(--text-muted)]">Expires {fmtDate(d.license_expiry)}</span>
+                        <ExpiryPill daysLeft={days} />
+                      </div>
                     )}
+                    <div className="flex gap-2 pt-1">
+                      <Btn variant="ghost" size="sm" onClick={() => openEdit(d)}>Edit</Btn>
+                      <Btn variant="danger" size="sm" onClick={() => setDeleteId(d.id)}>Delete</Btn>
+                    </div>
                   </div>
-                </div>
-                <div style={{ fontSize: 12 }}>
-                  <div style={{ color: "var(--text-dim)" }}>Route</div>
-                  <div style={{ color: "var(--text)" }}>{d.route_name ?? "—"}</div>
-                </div>
-                <div style={{ fontSize: 12 }}>
-                  <div style={{ color: "var(--text-dim)" }}>Type</div>
-                  <div style={{ color: "var(--text)", textTransform: "uppercase" }}>{d.driver_type ?? "TV"}</div>
-                </div>
-                <div style={{ fontSize: 12 }}>
-                  <div style={{ color: "var(--text-dim)" }}>Licence Expiry</div>
-                  <div style={{
-                    color: days !== null && days < 0 ? "var(--red)" : days !== null && days <= 30 ? "var(--amber)" : "var(--text)",
-                    fontFamily: "'IBM Plex Mono', monospace",
-                  }}>
-                    {d.license_expiry ? fmtDate(d.license_expiry) : "—"}
-                    {days !== null && days < 0 && " ⚠️"}
-                    {days !== null && days >= 0 && days <= 30 && " ⏰"}
-                  </div>
-                </div>
-              </div>
-
-              {d.phone && (
-                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>📞 {d.phone}</div>
-              )}
-
-              <button className="btn btn-ghost btn-sm w-full" onClick={() => openEdit(d)}>Edit Driver</button>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Desktop table */}
-      <div className="hidden sm:block card overflow-hidden">
-        {filtered.length === 0 ? (
-          <div className="p-10 text-center" style={{ color: "var(--text-muted)" }}>No drivers found.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="tms-table">
-              <thead>
-                <tr>
-                  <th>Driver</th>
-                  <th>Licence</th>
-                  <th>Team / Role</th>
-                  <th>Route</th>
-                  <th>Type</th>
-                  <th>Expiry</th>
-                  <th>Status</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(d => {
-                  const days = daysLeft(d.license_expiry);
-                  return (
-                    <tr key={d.id}>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{d.full_name ?? "—"}</div>
-                        {d.phone && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{d.phone}</div>}
-                      </td>
-                      <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13 }}>
-                        {d.license_number}
-                        {d.license_class && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Class {d.license_class}</div>}
-                      </td>
-                      <td>
-                        <div>{d.team_name ?? "—"}</div>
-                        {d.team_role && (
-                          <span className={`badge badge-${d.team_role === "leader" ? "approved" : d.team_role === "assistant" ? "dispatched" : "draft"}`} style={{ fontSize: 10 }}>
-                            {TEAM_ROLES.find(r => r.value === d.team_role)?.label ?? d.team_role}
-                          </span>
-                        )}
-                      </td>
-                      <td style={{ fontSize: 13 }}>{d.route_name ?? "—"}</td>
-                      <td>
-                        <span className={`badge badge-${d.driver_type === "radio" ? "recorded" : "dispatched"}`} style={{ textTransform: "uppercase" }}>
-                          {d.driver_type ?? "TV"}
-                        </span>
-                      </td>
-                      <td style={{
-                        fontFamily: "'IBM Plex Mono', monospace", fontSize: 13,
-                        color: days !== null && days < 0 ? "var(--red)" : days !== null && days <= 30 ? "var(--amber)" : "var(--text-muted)",
-                      }}>
-                        {d.license_expiry ? fmtDate(d.license_expiry) : "—"}
-                        {days !== null && days < 0 && " ⚠️"}
-                        {days !== null && days >= 0 && days <= 30 && " ⏰"}
-                      </td>
-                      <td>
-                        <span className={`badge badge-${d.employment_status === "active" ? "approved" : d.employment_status === "suspended" ? "rejected" : "closed"}`}>
-                          {d.employment_status.replace("_", " ")}
-                        </span>
-                      </td>
-                      <td>
-                        <button className="btn btn-ghost btn-sm" onClick={() => openEdit(d)}>Edit</button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                </Card>
+              );
+            })}
           </div>
-        )}
-      </div>
 
-      {/* Add/Edit Modal */}
-      {showForm && (
-        <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.5)" }}
-          onClick={() => setShowForm(false)}
-        >
-          <div
-            className="w-full max-w-lg rounded-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
-            style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h3 style={{ fontWeight: 700, fontSize: 15, color: "var(--text)" }}>
-                {editingId ? "Edit Driver" : "Add Driver"}
-              </h3>
-              <button onClick={() => setShowForm(false)} style={{ color: "var(--text-muted)" }}>✕</button>
+          {/* ── Desktop table ── */}
+          <div className="hidden sm:block card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="tms-table">
+                <thead>
+                  <tr>
+                    {["Driver", "Licence No.", "Expiry", "Status", "Account", "Actions"].map(h => (
+                      <th key={h}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(d => {
+                    const days = daysLeft(d.license_expiry);
+                    return (
+                      <tr key={d.id}>
+                        <td className="font-medium">
+                          {d.full_name ?? <span className="text-[color:var(--text-dim)] italic text-xs">No account</span>}
+                        </td>
+                        <td className="font-mono text-xs">{d.license_number}</td>
+                        <td>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm">{d.license_expiry ? fmtDate(d.license_expiry) : "—"}</span>
+                            <ExpiryPill daysLeft={days} />
+                          </div>
+                        </td>
+                        <td><Badge status={d.employment_status} /></td>
+                        <td>
+                          {d.user_id
+                            ? <span className="badge badge-active">Linked</span>
+                            : <span className="badge badge-inactive">None</span>}
+                        </td>
+                        <td>
+                          <div className="flex gap-2">
+                            <Btn variant="ghost" size="sm" onClick={() => openEdit(d)}>Edit</Btn>
+                            <Btn variant="danger" size="sm" onClick={() => setDeleteId(d.id)}>Delete</Btn>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
+          </div>
+        </>
+      )}
 
-            <div style={{ padding: 20, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-              {/* User account */}
-              <div style={{ gridColumn: "1/-1" }}>
-                <label className="form-label">Linked User Account</label>
-                <select className="tms-select" value={form.user_id} onChange={e => f("user_id", e.target.value)}>
-                  <option value="">— No linked account —</option>
-                  {userProfiles.map(p => (
-                    <option key={p.user_id} value={p.user_id}>{p.full_name}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Licence */}
-              <div>
-                <label className="form-label">Licence Number <span style={{ color: "var(--red)" }}>*</span></label>
-                <input className="tms-input" value={form.license_number} onChange={e => f("license_number", e.target.value.toUpperCase())} placeholder="DVS-001234" />
-              </div>
-              <div>
-                <label className="form-label">Licence Class</label>
-                <select className="tms-select" value={form.license_class} onChange={e => f("license_class", e.target.value)}>
-                  <option value="">— Select —</option>
-                  {LICENSE_CLASSES.map(c => <option key={c} value={c}>Class {c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="form-label">Licence Expiry</label>
-                <input className="tms-input" type="date" value={form.license_expiry} onChange={e => f("license_expiry", e.target.value)} />
-              </div>
-              <div>
-                <label className="form-label">Phone</label>
-                <input className="tms-input" value={form.phone} onChange={e => f("phone", e.target.value)} placeholder="+233 24 000 0000" />
-              </div>
-
-              {/* Employment */}
-              <div style={{ gridColumn: "1/-1" }}>
-                <label className="form-label">Employment Status</label>
-                <select className="tms-select" value={form.employment_status} onChange={e => f("employment_status", e.target.value)}>
-                  {["active","inactive","suspended","on_leave"].map(s => (
-                    <option key={s} value={s}>{s.replace("_", " ").replace(/^\w/, c => c.toUpperCase())}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Team assignment */}
-              <div>
-                <label className="form-label">Team</label>
-                <select className="tms-select" value={form.team_id} onChange={e => f("team_id", e.target.value)}>
-                  <option value="">— No team —</option>
-                  {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="form-label">Role in Team</label>
-                <select className="tms-select" value={form.team_role} onChange={e => f("team_role", e.target.value)}>
-                  {TEAM_ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-                </select>
-              </div>
-
-              {/* Driver type & route */}
-              <div>
-                <label className="form-label">Driver Type</label>
-                <select className="tms-select" value={form.driver_type} onChange={e => f("driver_type", e.target.value)}>
-                  {DRIVER_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="form-label">Assigned Route</label>
-                <select className="tms-select" value={form.route_id} onChange={e => f("route_id", e.target.value)}>
-                  <option value="">— No fixed route —</option>
-                  {routes.map(r => (
-                    <option key={r.id} value={r.id}>[{r.route_type?.toUpperCase()}] {r.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Notes */}
-              <div style={{ gridColumn: "1/-1" }}>
-                <label className="form-label">Notes</label>
-                <textarea className="tms-textarea" rows={2} value={form.notes} onChange={e => f("notes", e.target.value)} placeholder="Any notes…" />
-              </div>
-
-              {error && (
-                <div style={{ gridColumn: "1/-1" }} className="alert alert-error">
-                  <span className="alert-icon">✕</span>
-                  <span className="alert-content">{error}</span>
-                </div>
-              )}
-
-              <div style={{ gridColumn: "1/-1", display: "flex", justifyContent: "flex-end", gap: 10 }}>
-                <button className="btn btn-ghost" onClick={() => setShowForm(false)}>Cancel</button>
-                <button className="btn btn-primary" disabled={saving} onClick={save}>
-                  {saving ? "Saving…" : editingId ? "Update Driver" : "Add Driver"}
-                </button>
-              </div>
-            </div>
+      {/* ── Add / Edit modal ── */}
+      <Modal
+        open={showForm}
+        onClose={() => setShowForm(false)}
+        title={editingId ? "Edit Driver" : "Add Driver"}
+        maxWidth="max-w-md"
+      >
+        <div className="space-y-4">
+          <Field label="Licence Number" required>
+            <Input
+              value={form.license_number}
+              onChange={e => f("license_number", e.target.value)}
+              placeholder="GHA-DRV-12345"
+            />
+          </Field>
+          <Field label="Licence Expiry">
+            <Input type="date" value={form.license_expiry} onChange={e => f("license_expiry", e.target.value)} />
+          </Field>
+          <Field label="Employment Status">
+            <Select value={form.employment_status} onChange={e => f("employment_status", e.target.value)}>
+              {["active","inactive","suspended","on_leave"].map(s => (
+                <option key={s} value={s}>{s.replace("_", " ")}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Linked User Account ID (optional)">
+            <Input
+              value={form.user_id}
+              onChange={e => f("user_id", e.target.value)}
+              placeholder="Auth user UUID"
+            />
+          </Field>
+          {error && (
+            <p className="text-sm text-[color:var(--red)]">{error}</p>
+          )}
+          <div className="flex justify-end gap-3 pt-1">
+            <Btn variant="ghost" onClick={() => setShowForm(false)}>Cancel</Btn>
+            <Btn variant="primary" loading={saving} onClick={save}>
+              {editingId ? "Update Driver" : "Add Driver"}
+            </Btn>
           </div>
         </div>
-      )}
+      </Modal>
+
+      {/* ── Delete confirm ── */}
+      <ConfirmDialog
+        open={!!deleteId}
+        title="Delete Driver"
+        message="Remove this driver record? This action cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={() => deleteId && handleDelete(deleteId)}
+        onCancel={() => setDeleteId(null)}
+      />
     </div>
   );
 }
