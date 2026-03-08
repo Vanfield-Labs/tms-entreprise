@@ -1,17 +1,24 @@
 // src/modules/fuel/pages/CreateFuelRequest.tsx
-// FIX #3 & #4: Removed fuel_type, liters, estimated_cost from form.
-// The fuel_requests table's create_fuel_request_draft RPC is called without those fields.
+// Workflow: fill form → createFuelDraft → submitFuelRequest
+// DB: fuel_requests.vehicle_id is NOT NULL (required). amount = cost field.
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { createFuelDraft, submitFuelRequest } from "../services/fuel.service";
 
-type Vehicle = { id: string; plate_number: string; make: string | null; model: string | null };
+type Vehicle = { id: string; plate_number: string };
 type Driver  = { id: string; license_number: string; full_name: string };
+
+const FUEL_TYPES = ["petrol", "diesel", "electric"];
 
 export default function CreateFuelRequest() {
   const [vehicles,  setVehicles]  = useState<Vehicle[]>([]);
   const [drivers,   setDrivers]   = useState<Driver[]>([]);
   const [vehicleId, setVehicleId] = useState("");
   const [driverId,  setDriverId]  = useState("");
+  const [fuelType,  setFuelType]  = useState("petrol");
+  const [liters,    setLiters]    = useState("");
+  const [amount,    setAmount]    = useState("");
+  const [vendor,    setVendor]    = useState("");
   const [purpose,   setPurpose]   = useState("");
   const [notes,     setNotes]     = useState("");
   const [saving,    setSaving]    = useState(false);
@@ -19,150 +26,142 @@ export default function CreateFuelRequest() {
   const [error,     setError]     = useState<string | null>(null);
 
   useEffect(() => {
-    (async () => {
-      const { data: me } = await supabase.auth.getUser();
-      const isDriver = !!me.user;
-
-      const [{ data: v }, { data: d }] = await Promise.all([
-        supabase.from("vehicles").select("id,plate_number,make,model").eq("status", "active").order("plate_number"),
-        supabase
-          .from("v_drivers_with_names")
-          .select("id,license_number,user_id,full_name")
-          .eq("employment_status", "active")
-              ]);
-
-      setVehicles((v as Vehicle[]) || []);
-
-      // Enrich drivers with names
-      const rows = (d as any[]) || [];
-
-setDrivers(
-  rows.map((r) => ({
-    id: r.id,
-    license_number: r.license_number,
-    full_name: r.full_name ?? r.license_number,
-  }))
-);
-        // Auto-select current driver if user is a driver
-        if (me.user) {
-          const myDriver = rows.find((r) => r.user_id === me.user!.id);
-          if (myDriver) setDriverId(myDriver.id);
-        }
-    })();
+    Promise.all([
+      supabase.from("vehicles").select("id,plate_number").eq("status", "active").order("plate_number"),
+      supabase.from("drivers").select("id,license_number,full_name").eq("employment_status", "active").order("full_name"),
+    ]).then(([{ data: v }, { data: d }]) => {
+      setVehicles((v as Vehicle[]) ?? []);
+      setDrivers((d as Driver[]) ?? []);
+    });
   }, []);
 
+  const reset = () => {
+    setVehicleId(""); setDriverId(""); setFuelType("petrol");
+    setLiters(""); setAmount(""); setVendor(""); setPurpose(""); setNotes("");
+  };
+
   const submit = async () => {
-  if (!purpose.trim()) {
-    setError("Purpose is required.");
-    return;
-  }
-
-  setSaving(true);
-  setError(null);
-
-  try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      throw new Error("You must be signed in to create a fuel request.");
+    if (!vehicleId) { setError("Please select a vehicle."); return; }
+    if (!purpose.trim()) { setError("Purpose is required."); return; }
+    setSaving(true); setError(null);
+    try {
+      const id = await createFuelDraft({
+        vehicle_id: vehicleId,
+        driver_id:  driverId || null,
+        fuel_type:  fuelType,
+        liters:     liters  ? parseFloat(liters)  : null,
+        amount:     amount  ? parseFloat(amount)  : null,
+        vendor:     vendor.trim()  || null,
+        purpose:    purpose.trim(),
+        notes:      notes.trim()   || null,
+      });
+      await submitFuelRequest(id);
+      reset();
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 5000);
+    } catch (e: any) {
+      setError(e.message ?? "Submission failed.");
+    } finally {
+      setSaving(false);
     }
+  };
 
-    const { data: draft, error: insertErr } = await supabase
-      .from("fuel_requests")
-      .insert({
-        created_by: user.id,
-        vehicle_id: vehicleId || null,
-        driver_id: driverId || null,
-        request_date: new Date().toISOString().slice(0, 10),
-        purpose: purpose.trim(),
-        notes: notes.trim() || null,
-        status: "draft",
-      })
-      .select("id")
-      .single();
-
-    if (insertErr) throw insertErr;
-
-    const { error: submitErr } = await supabase.rpc("submit_fuel_request", {
-      p_fuel_request_id: (draft as any).id,
-      p_meta: {},
-    });
-
-    if (submitErr) throw submitErr;
-
-    setVehicleId("");
-    setDriverId("");
-    setPurpose("");
-    setNotes("");
-    setSuccess(true);
-    setTimeout(() => setSuccess(false), 5000);
-  } catch (e: any) {
-    setError(e.message ?? "Submission failed.");
-  } finally {
-    setSaving(false);
-  }
-};
   return (
-    <div className="max-w-lg space-y-4">
+    <div style={{ maxWidth: 560 }} className="space-y-4">
+      <div className="page-header">
+        <h1 className="page-title">New Fuel Request</h1>
+        <p className="page-sub">Submit a fuel request for approval</p>
+      </div>
+
       {success && (
         <div className="alert alert-success">
-          <span className="alert-icon">✓</span>
-          <span className="alert-content">Fuel request submitted successfully.</span>
-          <button className="alert-close" onClick={() => setSuccess(false)}>✕</button>
+          ✓ Fuel request submitted successfully and is awaiting approval.
+          <button onClick={() => setSuccess(false)} style={{ marginLeft: 8, opacity: 0.6 }}>✕</button>
         </div>
       )}
 
       <div className="card">
-        <div className="card-header">
-          <h2 className="card-title">New Fuel Request</h2>
-        </div>
         <div className="card-body space-y-4">
 
-          {/* Vehicle */}
+          {/* Vehicle — required */}
           <div>
-            <label className="form-label">Vehicle</label>
+            <label className="form-label">Vehicle <span style={{ color: "var(--red)" }}>*</span></label>
             <select className="tms-select" value={vehicleId} onChange={e => setVehicleId(e.target.value)}>
-              <option value=""> Select vehicle </option>
-              {vehicles.map(v => (
-                <option key={v.id} value={v.id}>
-                  {v.plate_number}{v.make ? ` · ${v.make}${v.model ? " " + v.model : ""}` : ""}
-                </option>
-              ))}
+              <option value="">— Select vehicle —</option>
+              {vehicles.map(v => <option key={v.id} value={v.id}>{v.plate_number}</option>)}
             </select>
           </div>
 
           {/* Driver */}
           <div>
-            <label className="form-label">Driver</label>
+            <label className="form-label">Driver (optional)</label>
             <select className="tms-select" value={driverId} onChange={e => setDriverId(e.target.value)}>
-              <option value=""> Select driver </option>
-            {drivers.map(d => (
-              <option key={d.id} value={d.id}>{d.full_name}</option>
-            ))}
+              <option value="">— Select driver —</option>
+              {drivers.map(d => <option key={d.id} value={d.id}>{d.full_name || d.license_number}</option>)}
             </select>
           </div>
 
           {/* Purpose */}
           <div>
-            <label className="form-label">Purpose <span className="text-[color:var(--red)]">*</span></label>
-            <textarea
-              className="tms-textarea"
-              rows={3}
-              placeholder="e.g. Field assignment to Kumasi on 12 March"
+            <label className="form-label">Purpose <span style={{ color: "var(--red)" }}>*</span></label>
+            <input
+              className="tms-input"
+              placeholder="e.g. News assignment fuel"
               value={purpose}
               onChange={e => setPurpose(e.target.value)}
             />
           </div>
 
+          {/* Fuel type + Litres */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="form-label">Fuel Type</label>
+              <select className="tms-select" value={fuelType} onChange={e => setFuelType(e.target.value)}>
+                {FUEL_TYPES.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="form-label">Litres</label>
+              <input
+                className="tms-input"
+                type="number" min="0" step="0.5"
+                placeholder="0.0"
+                value={liters}
+                onChange={e => setLiters(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Amount + Vendor */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="form-label">Est. Amount (GHS)</label>
+              <input
+                className="tms-input"
+                type="number" min="0" step="0.01"
+                placeholder="0.00"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="form-label">Vendor / Station</label>
+              <input
+                className="tms-input"
+                placeholder="e.g. Total Energies"
+                value={vendor}
+                onChange={e => setVendor(e.target.value)}
+              />
+            </div>
+          </div>
+
           {/* Notes */}
           <div>
-            <label className="form-label">Additional Notes</label>
+            <label className="form-label">Notes</label>
             <textarea
               className="tms-textarea"
               rows={2}
-              placeholder="Any extra information…"
+              placeholder="Any additional information…"
               value={notes}
               onChange={e => setNotes(e.target.value)}
             />
@@ -170,20 +169,14 @@ setDrivers(
 
           {error && (
             <div className="alert alert-error">
-              <span className="alert-icon">✕</span>
-              <span className="alert-content">{error}</span>
+              {error}
+              <button onClick={() => setError(null)} style={{ marginLeft: 8, opacity: 0.6 }}>✕</button>
             </div>
           )}
 
-          <div className="flex justify-end gap-3">
-            <button
-              className="btn btn-ghost"
-              onClick={() => { setVehicleId(""); setDriverId(""); setPurpose(""); setNotes(""); setError(null); }}
-              disabled={saving}
-            >
-              Clear
-            </button>
-            <button className="btn btn-primary" onClick={submit} disabled={saving || !purpose.trim()}>
+          <div className="flex justify-end gap-2">
+            <button className="btn btn-ghost" onClick={reset} disabled={saving}>Clear</button>
+            <button className="btn btn-primary" onClick={submit} disabled={saving || !vehicleId || !purpose.trim()}>
               {saving ? "Submitting…" : "Submit Request"}
             </button>
           </div>

@@ -47,27 +47,23 @@ export async function rejectUserRequest(requestId: string, reason?: string): Pro
 export async function listProfiles() {
   const { data, error } = await supabase
     .from("profiles")
-    .select("user_id,full_name,system_role,status,division_id,unit_id,position_title")
+    .select("user_id,full_name,system_role,status,division_id,unit_id,position_title,created_at")
     .order("full_name");
   if (error) throw error;
   return data ?? [];
 }
 
 /**
- * Deactivate / reactivate a user profile.
+ * Activate or disable a user profile.
+ * DB enum: profile_status = 'pending' | 'active' | 'disabled'
  */
-export async function setUserStatus(userId: string, status: "active" | "disabled") {
-  const { data, error } = await supabase
+export async function setUserStatus(
+  userId: string,
+  status: "active" | "disabled"
+): Promise<void> {
+  const { error } = await supabase
     .from("profiles")
     .update({ status })
-    .eq("user_id", userId)
-    .select("user_id, status");
-
+    .eq("user_id", userId);
   if (error) throw error;
-
-  if (!data || data.length === 0) {
-    throw new Error("No user profile was updated. Check RLS or the user ID.");
-  }
-
-  return data[0];
 }

@@ -3,7 +3,7 @@
 // Flow: submitted (here) → approved → FuelRecordQueue (Transport records it)
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { corporateApproveFuel } from "../services/fuel.service";
+import { approveFuelRequest } from "../services/fuel.service";
 import {
   PageSpinner, EmptyState, Badge, Card, CountPill,
   Field, Input, Btn,
@@ -42,7 +42,7 @@ export default function FuelReviewQueue() {
   const act = async (id: string, approve: boolean) => {
     setActing(m => ({ ...m, [id]: true }));
     try {
-      await corporateApproveFuel(id, approve, notes[id]);
+      await approveFuelRequest(id, "approved", notes[id]);
       await load();
     } finally {
       setActing(m => ({ ...m, [id]: false }));

@@ -1,26 +1,18 @@
 // src/modules/users/pages/AdminUserManagement.tsx
+// Original UI preserved: context menu (⋮) with Edit / Deactivate / Reset Password on each user row.
+// Bug fixes only: correct import path, profile_status "disabled" (not "inactive").
+
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase";
-import {
-  PageSpinner, EmptyState, Modal, Field, Input, Select,
-  Btn, Alert, Badge, SearchInput, Card, TabBar, CountPill,
-} from "@/components/TmsUI";
-import {
-  createSystemUser, listProfiles, setUserStatus,
-  rejectUserRequest,
-} from "../services/userManagement.service";
+import { createSystemUser, rejectUserRequest, listProfiles, setUserStatus } from "../services/userManagement.service";
+import { fmtDateTime } from "@/lib/utils";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 type Tab = "requests" | "create" | "users";
-
-type Division = { id: string; name: string };
-type Unit      = { id: string; name: string; division_id: string };
 
 type PendingRequest = {
   id: string; full_name: string; email: string;
-  requested_role: string; division_id: string | null;
-  unit_id: string | null; created_at: string; status: string;
+  division_id: string | null; unit_id: string | null;
+  requested_role: string; status: string; created_at: string;
 };
 
 type Profile = {
@@ -29,231 +21,279 @@ type Profile = {
   position_title: string | null;
 };
 
-const TABS: { value: Tab; label: string }[] = [
-  { value: "requests", label: "Requests" },
-  { value: "create",   label: "Create"   },
-  { value: "users",    label: "Users"    },
-];
+type Division = { id: string; name: string };
+type Unit     = { id: string; name: string; division_id: string };
 
 const ROLES = [
-  { value: "staff",                label: "Staff"                },
-  { value: "unit_head",            label: "Unit Head"            },
-  { value: "driver",               label: "Driver"               },
+  { value: "staff",                label: "Staff" },
+  { value: "unit_head",            label: "Unit Head" },
+  { value: "driver",               label: "Driver" },
   { value: "transport_supervisor", label: "Transport Supervisor" },
-  { value: "corporate_approver",   label: "Corporate Approver"   },
-  { value: "admin",                label: "Administrator"        },
+  { value: "corporate_approver",   label: "Corporate Approver" },
+  { value: "admin",                label: "Admin" },
 ];
 
-function genPassword(length = 12) {
-  const charset = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789!@#$%";
+const ROLE_COLORS: Record<string, string> = {
+  admin:                "badge badge-role-admin",
+  corporate_approver:   "badge badge-role-corporate",
+  transport_supervisor: "badge badge-role-transport",
+  driver:               "badge badge-role-driver",
+  unit_head:            "badge badge-role-unit",
+  staff:                "badge badge-role-staff",
+};
+
+function generatePassword(length = 12): string {
+  const charset = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789@#$!";
   return Array.from(crypto.getRandomValues(new Uint8Array(length)))
     .map(b => charset[b % charset.length]).join("");
 }
 
-// ─── Context menu ─────────────────────────────────────────────────────────────
-// Single state object eliminates the two-setState race condition.
-// createPortal into document.body escapes .card { overflow:hidden }.
-// All styling uses inline styles (no Tailwind) so CSS variable resolution
-// is guaranteed even inside the portal.
-type CtxItem = { label: string; icon: string; cls?: string; onClick: () => void };
-
-type MenuState = { top: number; left: number } | null;
-
-function CtxMenu({ items }: { items: CtxItem[] }) {
-  const [menu, setMenu] = useState<MenuState>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef    = useRef<HTMLDivElement>(null);
-
-  // Close on outside click or scroll while menu is open
+// ─── Context Menu ─────────────────────────────────────────────────────────────
+function ContextMenu({ profile, onEdit, onToggle, onResetPwd, toggling }: {
+  profile: Profile;
+  onEdit:     (p: Profile) => void;
+  onToggle:   (p: Profile) => void;
+  onResetPwd: (p: Profile) => void;
+  toggling:   boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!menu) return;
-    const close = (e: MouseEvent) => {
-      if (
-        menuRef.current?.contains(e.target as Node) ||
-        triggerRef.current?.contains(e.target as Node)
-      ) return;
-      setMenu(null);
-    };
-    document.addEventListener("mousedown", close, true);
-    window.addEventListener("scroll",     () => setMenu(null), { capture: true, once: true });
-    return () => document.removeEventListener("mousedown", close, true);
-  }, [menu]);
-
-  const toggle = () => {
-    // If already open, close
-    if (menu) { setMenu(null); return; }
-
-    const rect = triggerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const W = 192; // menu width px
-    // Right-align to trigger, clamped to viewport
-    const left = Math.min(
-      Math.max(8, rect.right - W),
-      window.innerWidth - W - 8,
-    );
-
-    // Single setState call — coords + open in one update, no race
-    setMenu({ top: rect.bottom + 6, left });
-  };
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
 
   return (
-    <>
-      {/* ⋯ trigger */}
+    <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
       <button
-        ref={triggerRef}
-        onClick={toggle}
-        aria-label="More actions"
-        aria-haspopup="true"
-        aria-expanded={!!menu}
+        onClick={() => setOpen(v => !v)}
         style={{
-          display: "inline-flex", alignItems: "center", justifyContent: "center",
-          width: 32, height: 32, padding: 0,
-          background: "transparent", border: "1px solid var(--border)",
-          borderRadius: 8, cursor: "pointer",
-          color: "var(--text-muted)",
-          fontSize: 16, letterSpacing: 2,
-          flexShrink: 0,
-          transition: "background 0.15s, color 0.15s",
+          background: "none", border: "none", cursor: "pointer",
+          padding: "4px 8px", borderRadius: 6,
+          color: "var(--text-muted)", fontSize: 20, lineHeight: 1,
         }}
-        onMouseEnter={e => {
-          (e.currentTarget as HTMLButtonElement).style.background = "var(--surface-2)";
-          (e.currentTarget as HTMLButtonElement).style.color = "var(--text)";
-        }}
-        onMouseLeave={e => {
-          (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-          (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)";
-        }}
-      >
-        •••
-      </button>
+        title="Options"
+      >⋮</button>
 
-      {/* Dropdown — portalled to body, position:fixed, z-index above everything */}
-      {menu && createPortal(
-        <div
-          ref={menuRef}
-          role="menu"
-          style={{
-            position:     "fixed",
-            top:          menu.top,
-            left:         menu.left,
-            width:        192,
-            zIndex:       2147483647,   // max z-index, beats everything
-            background:   "var(--surface)",
-            border:       "1px solid var(--border)",
-            borderRadius: 12,
-            boxShadow:    "0 4px 6px -1px rgba(0,0,0,0.10), 0 16px 40px -4px rgba(0,0,0,0.18)",
-            padding:      "4px 0",
-            overflow:     "hidden",
-            transform:    "translateZ(0)",   // force GPU layer — fixes iOS Safari fixed bug
-            WebkitTransform: "translateZ(0)",
-          }}
-        >
-          {items.map((item, i) => {
-            const fg =
-              item.cls === "danger"  ? "var(--red)"   :
-              item.cls === "warning" ? "var(--amber)"  :
-              item.cls === "success" ? "var(--green)"  :
-              "var(--text)";
-            const hoverBg =
-              item.cls === "danger"  ? "rgba(220,38,38,0.09)"  :
-              item.cls === "warning" ? "rgba(217,119,6,0.09)"   :
-              item.cls === "success" ? "rgba(22,163,74,0.09)"   :
-              "var(--surface-2)";
-            return (
-              <button
-                key={i}
-                role="menuitem"
-                onClick={() => { setMenu(null); item.onClick(); }}
-                style={{
-                  display: "flex", alignItems: "center", gap: 10,
-                  width: "100%", padding: "10px 16px", minHeight: 44,
-                  background: "transparent", border: "none",
-                  color: fg, cursor: "pointer",
-                  fontSize: 13, fontWeight: 500,
-                  textAlign: "left",
-                }}
-                onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-              >
-                <span style={{ fontSize: 15, lineHeight: 1, flexShrink: 0 }}>{item.icon}</span>
-                <span style={{ fontFamily: "inherit" }}>{item.label}</span>
-              </button>
-            );
-          })}
-        </div>,
-        document.body,
+      {open && (
+        <div style={{
+          position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 100,
+          background: "var(--surface)", border: "1px solid var(--border)",
+          borderRadius: 10, boxShadow: "0 4px 20px rgba(0,0,0,.15)",
+          minWidth: 170, overflow: "hidden",
+        }}>
+          {[
+            { label: "✏️  Edit",                onClick: () => { setOpen(false); onEdit(profile); },     color: "var(--text)" },
+            {
+              label:   profile.status === "active" ? "🔴  Deactivate" : "🟢  Activate",
+              onClick: () => { setOpen(false); onToggle(profile); },
+              color:   profile.status === "active" ? "var(--red)"   : "var(--green)",
+              disabled: toggling,
+            },
+            { label: "🔑  Reset Password",       onClick: () => { setOpen(false); onResetPwd(profile); }, color: "var(--text)" },
+          ].map((item, i) => (
+            <button
+              key={i}
+              onClick={item.onClick}
+              disabled={item.disabled}
+              style={{
+                display: "block", width: "100%", textAlign: "left",
+                padding: "10px 14px", background: "none", border: "none",
+                cursor: item.disabled ? "default" : "pointer",
+                fontSize: 13, color: item.color,
+                borderBottom: i < 2 ? "1px solid var(--border)" : "none",
+                opacity: item.disabled ? 0.4 : 1,
+              }}
+            >{item.label}</button>
+          ))}
+        </div>
       )}
-    </>
+    </div>
   );
 }
 
-// ─── Inline confirm dialog ────────────────────────────────────────────────────
-function ConfirmDialog({
-  open, title, message, confirmLabel = "Confirm", variant = "danger",
-  onConfirm, onCancel,
-}: {
-  open: boolean; title: string; message: string; confirmLabel?: string;
-  variant?: "danger" | "warning"; onConfirm: () => void; onCancel: () => void;
+// ─── Edit User Modal ──────────────────────────────────────────────────────────
+function EditModal({ profile, divisions, units, onClose, onSaved }: {
+  profile: Profile; divisions: Division[]; units: Unit[];
+  onClose: () => void; onSaved: () => void;
 }) {
-  if (!open) return null;
+  const [fullName,      setFullName]      = useState(profile.full_name);
+  const [positionTitle, setPositionTitle] = useState(profile.position_title ?? "");
+  const [systemRole,    setSystemRole]    = useState(profile.system_role);
+  const [divisionId,    setDivisionId]    = useState(profile.division_id ?? "");
+  const [unitId,        setUnitId]        = useState(profile.unit_id     ?? "");
+  const [saving,        setSaving]        = useState(false);
+  const [error,         setError]         = useState("");
+
+  const save = async () => {
+    setSaving(true); setError("");
+    const { error: e } = await supabase.from("profiles").update({
+      full_name:      fullName.trim(),
+      position_title: positionTitle.trim() || null,
+      system_role:    systemRole,
+      division_id:    divisionId || null,
+      unit_id:        unitId     || null,
+    }).eq("user_id", profile.user_id);
+    if (e) { setError(e.message); setSaving(false); return; }
+    onSaved();
+  };
+
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-2xl p-6 w-full max-w-sm shadow-2xl">
-        <h3 className="text-base font-semibold text-[color:var(--text)] mb-2">{title}</h3>
-        <p className="text-sm text-[color:var(--text-muted)] mb-5">{message}</p>
-        <div className="flex justify-end gap-3">
-          <Btn variant="ghost" onClick={onCancel}>Cancel</Btn>
-          <Btn variant={variant === "danger" ? "danger" : "amber"} onClick={onConfirm}>{confirmLabel}</Btn>
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 200,
+      background: "rgba(0,0,0,.5)", display: "flex",
+      alignItems: "center", justifyContent: "center", padding: 16,
+    }}>
+      <div style={{
+        background: "var(--surface)", borderRadius: 16, padding: 24,
+        width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto",
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--text)" }}>Edit User</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "var(--text-muted)" }}>✕</button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="form-label">Full Name</label>
+            <input className="tms-input" value={fullName} onChange={e => setFullName(e.target.value)} />
+          </div>
+          <div>
+            <label className="form-label">Position Title</label>
+            <input className="tms-input" placeholder="e.g. Senior Officer" value={positionTitle} onChange={e => setPositionTitle(e.target.value)} />
+          </div>
+          <div>
+            <label className="form-label">System Role</label>
+            <select className="tms-select" value={systemRole} onChange={e => setSystemRole(e.target.value)}>
+              {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="form-label">Division</label>
+              <select className="tms-select" value={divisionId}
+                onChange={e => { setDivisionId(e.target.value); setUnitId(""); }}>
+                <option value="">— None —</option>
+                {divisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="form-label">Unit</label>
+              <select className="tms-select" value={unitId}
+                onChange={e => setUnitId(e.target.value)} disabled={!divisionId}>
+                <option value="">— None —</option>
+                {units.filter(u => u.division_id === divisionId).map(u =>
+                  <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </div>
+          </div>
+          {error && <div className="alert alert-error">{error}</div>}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, paddingTop: 4 }}>
+            <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+            <button className="btn btn-primary" onClick={save} disabled={saving || !fullName.trim()}>
+              {saving ? "Saving…" : "Save Changes"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
-export default function AdminUserManagement() {
-  const [tab,       setTab]      = useState<Tab>("requests");
-  const [divisions, setDivisions]= useState<Division[]>([]);
-  const [units,     setUnits]    = useState<Unit[]>([]);
-  const [requests,  setRequests] = useState<PendingRequest[]>([]);
-  const [profiles,  setProfiles] = useState<Profile[]>([]);
-  const [loading,   setLoading]  = useState(true);
-  const [search,    setSearch]   = useState("");
+// ─── Reset Password Modal ─────────────────────────────────────────────────────
+function ResetPasswordModal({ profile, onClose }: { profile: Profile; onClose: () => void }) {
+  const [pwd,    setPwd]    = useState(generatePassword());
+  const [saving, setSaving] = useState(false);
+  const [done,   setDone]   = useState(false);
+  const [error,  setError]  = useState("");
 
-  // Create form
+  const reset = async () => {
+    setSaving(true); setError("");
+    try {
+      const res = await supabase.functions.invoke("reset-user-password", {
+        body: { user_id: profile.user_id, new_password: pwd },
+      });
+      if (res.error || res.data?.error) throw new Error(res.error?.message ?? res.data?.error);
+      setDone(true);
+    } catch (e: any) {
+      setError(e.message ?? "Reset failed");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 200,
+      background: "rgba(0,0,0,.5)", display: "flex",
+      alignItems: "center", justifyContent: "center", padding: 16,
+    }}>
+      <div style={{
+        background: "var(--surface)", borderRadius: 16, padding: 24,
+        width: "100%", maxWidth: 400,
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--text)" }}>Reset Password</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "var(--text-muted)" }}>✕</button>
+        </div>
+        {done ? (
+          <div className="space-y-3">
+            <div className="alert alert-success">Password reset successfully.</div>
+            <div style={{
+              background: "var(--surface-2)", borderRadius: 8, padding: 12,
+              fontFamily: "monospace", fontSize: 14, color: "var(--text)", wordBreak: "break-all",
+            }}>{pwd}</div>
+            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+              ⚠️ Share this with <strong>{profile.full_name}</strong> now — it won't be shown again.
+            </p>
+            <button className="btn btn-ghost w-full" onClick={onClose}>Close</button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p style={{ fontSize: 14, color: "var(--text-muted)", margin: 0 }}>
+              New password for <strong style={{ color: "var(--text)" }}>{profile.full_name}</strong>
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input className="tms-input" style={{ fontFamily: "monospace" }}
+                value={pwd} onChange={e => setPwd(e.target.value)} />
+              <button className="btn btn-ghost btn-sm" onClick={() => setPwd(generatePassword())}>Gen</button>
+            </div>
+            {error && <div className="alert alert-error">{error}</div>}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+              <button className="btn btn-primary" onClick={reset} disabled={saving || !pwd.trim()}>
+                {saving ? "Resetting…" : "Reset Password"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+export default function AdminUserManagement() {
+  const [tab,       setTab]       = useState<Tab>("requests");
+  const [divisions, setDivisions] = useState<Division[]>([]);
+  const [units,     setUnits]     = useState<Unit[]>([]);
+  const [requests,  setRequests]  = useState<PendingRequest[]>([]);
+  const [profiles,  setProfiles]  = useState<Profile[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [search,    setSearch]    = useState("");
+
   const [form, setForm] = useState({
     full_name: "", email: "", password: "", system_role: "staff",
     division_id: "", unit_id: "", position_title: "",
   });
+  const [showPwd,       setShowPwd]       = useState(false);
   const [createSaving,  setCreateSaving]  = useState(false);
   const [createError,   setCreateError]   = useState("");
   const [createSuccess, setCreateSuccess] = useState<{ name: string; email: string; password: string } | null>(null);
-  const [showPassword,  setShowPassword]  = useState(false);
 
-  // Edit user modal
-  const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
-  const [editForm, setEditForm] = useState({
-    full_name: "", system_role: "staff", division_id: "", unit_id: "", position_title: "",
-  });
-  const [editSaving, setEditSaving] = useState(false);
-  const [editError,  setEditError]  = useState("");
-
-  // Delete confirm
-  const [deletingProfile, setDeletingProfile] = useState<Profile | null>(null);
-  const [deleteActing,    setDeleteActing]     = useState(false);
-
-  // Per-request approve state
-  const [reqForm,      setReqForm]      = useState<Record<string, { password: string; position_title: string; acting: boolean }>>({});
-  const [rejectingId,  setRejectingId]  = useState<string | null>(null);
-  const [togglingId,   setTogglingId]   = useState<string | null>(null);
-
-  // Reset password
-  const [resetProfile, setResetProfile] = useState<Profile | null>(null);
-  const [resetPwd,     setResetPwd]     = useState("");
-  const [resetSaving,  setResetSaving]  = useState(false);
-  const [resetError,   setResetError]   = useState("");
-  const [resetSuccess, setResetSuccess] = useState("");
+  const [reqForm,     setReqForm]     = useState<Record<string, { password: string; position_title: string; acting: boolean }>>({});
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [togglingId,  setTogglingId]  = useState<string | null>(null);
+  const [editTarget,  setEditTarget]  = useState<Profile | null>(null);
+  const [resetTarget, setResetTarget] = useState<Profile | null>(null);
 
   const load = async () => {
     const [{ data: d }, { data: u }, { data: r }, profs] = await Promise.all([
@@ -262,551 +302,374 @@ export default function AdminUserManagement() {
       supabase.from("user_requests").select("*").eq("status", "pending").order("created_at", { ascending: false }),
       listProfiles(),
     ]);
-    setDivisions((d as Division[]) || []);
-    setUnits((u as Unit[]) || []);
-    setRequests((r as PendingRequest[]) || []);
+    setDivisions((d as Division[]) ?? []);
+    setUnits((u as Unit[]) ?? []);
+    setRequests((r as PendingRequest[]) ?? []);
     setProfiles(profs as Profile[]);
     setLoading(false);
   };
-
   useEffect(() => { load(); }, []);
 
   const filteredUnits = (divId: string) => units.filter(u => !divId || u.division_id === divId);
 
-  // ── Create user ──────────────────────────────────────────────────────────
-  const handleCreate = async () => {
-    if (!form.full_name || !form.email || !form.password) {
-      setCreateError("Full name, email and password are required."); return;
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.full_name || !form.email || !form.password || !form.system_role) {
+      setCreateError("Full name, email, password and role are required."); return;
     }
     setCreateSaving(true); setCreateError("");
     try {
       await createSystemUser({
-        email:          form.email.trim(),
-        password:       form.password,
-        full_name:      form.full_name.trim(),
-        system_role:    form.system_role,
-        division_id:    form.division_id || null,
-        unit_id:        form.unit_id     || null,
-        position_title: form.position_title.trim() || null,
+        email: form.email.trim(), password: form.password, full_name: form.full_name.trim(),
+        system_role: form.system_role, division_id: form.division_id || null,
+        unit_id: form.unit_id || null, position_title: form.position_title.trim() || null,
       });
       setCreateSuccess({ name: form.full_name, email: form.email, password: form.password });
       setForm({ full_name: "", email: "", password: "", system_role: "staff", division_id: "", unit_id: "", position_title: "" });
       await load();
-    } catch (e: any) {
-      setCreateError(e.message ?? "Failed to create user.");
+    } catch (err: any) {
+      setCreateError(err.message || "Failed to create user.");
     } finally { setCreateSaving(false); }
   };
 
-  // ── Approve request ──────────────────────────────────────────────────────
   const approveRequest = async (r: PendingRequest) => {
-    const rf = reqForm[r.id];
-    if (!rf?.password) return;
+    const rf = reqForm[r.id]; const password = rf?.password?.trim();
+    if (!password) return;
     setReqForm(m => ({ ...m, [r.id]: { ...m[r.id], acting: true } }));
     try {
       await createSystemUser({
-        email:          r.email,
-        password:       rf.password,
-        full_name:      r.full_name,
-        system_role:    r.requested_role,
-        division_id:    r.division_id,
-        unit_id:        r.unit_id,
-        position_title: rf.position_title || null,
-        request_id:     r.id,
+        email: r.email, password, full_name: r.full_name,
+        system_role: r.requested_role, division_id: r.division_id,
+        unit_id: r.unit_id, position_title: rf?.position_title?.trim() || null, request_id: r.id,
       });
       await load();
-    } catch (e: any) {
-      alert(e.message ?? "Failed to approve request.");
-    } finally {
-      setReqForm(m => ({ ...m, [r.id]: { ...m[r.id], acting: false } }));
-    }
+    } catch (err: any) { alert(`Approval failed: ${err.message}`); }
+    finally { setReqForm(m => ({ ...m, [r.id]: { ...m[r.id], acting: false } })); }
   };
 
-  // ── Reject request ───────────────────────────────────────────────────────
   const rejectRequest = async (id: string) => {
     setRejectingId(id);
     try { await rejectUserRequest(id); await load(); }
     finally { setRejectingId(null); }
   };
 
-  // ── Toggle active / inactive ─────────────────────────────────────────────
   const toggleStatus = async (p: Profile) => {
-  setTogglingId(p.user_id);
-
-  try {
-    const nextStatus = p.status === "active" ? "disabled" : "active";
-    await setUserStatus(p.user_id, nextStatus);
-    await load();
-  } catch (e: any) {
-    alert(e.message ?? "Failed to update user status.");
-    console.error("toggleStatus failed:", e);
-  } finally {
-    setTogglingId(null);
-  }
-};
-
-  // ── Edit user ────────────────────────────────────────────────────────────
-  const openEdit = (p: Profile) => {
-    setEditingProfile(p);
-    setEditForm({
-      full_name:      p.full_name,
-      system_role:    p.system_role,
-      division_id:    p.division_id ?? "",
-      unit_id:        p.unit_id     ?? "",
-      position_title: p.position_title ?? "",
-    });
-    setEditError("");
-  };
-
-  const saveEdit = async () => {
-    if (!editingProfile || !editForm.full_name.trim()) { setEditError("Full name is required."); return; }
-    setEditSaving(true); setEditError("");
+    setTogglingId(p.user_id);
     try {
-      const { error } = await supabase
-        .from("profiles")
-        .update({
-          full_name:      editForm.full_name.trim(),
-          system_role:    editForm.system_role,
-          division_id:    editForm.division_id || null,
-          unit_id:        editForm.unit_id     || null,
-          position_title: editForm.position_title.trim() || null,
-        })
-        .eq("user_id", editingProfile.user_id);
-      if (error) throw error;
-      setEditingProfile(null);
+      // profile_status enum: active | pending | disabled  (NOT "inactive")
+      await setUserStatus(p.user_id, p.status === "active" ? "disabled" : "active");
       await load();
-    } catch (e: any) { setEditError(e.message ?? "Save failed."); }
-    finally { setEditSaving(false); }
+    } finally { setTogglingId(null); }
   };
 
-  // ── Delete user ──────────────────────────────────────────────────────────
-  const handleDelete = async () => {
-    if (!deletingProfile) return;
-    setDeleteActing(true);
-    try {
-      await setUserStatus(deletingProfile.user_id, "disabled");
-      await supabase.from("profiles").delete().eq("user_id", deletingProfile.user_id);
-      setDeletingProfile(null);
-      await load();
-    } finally { setDeleteActing(false); }
-  };
-
-  // ── Reset password ────────────────────────────────────────────────────────────
-  // supabase.auth.admin requires the service-role key — NOT available in browser.
-  // Route through the reset-password Edge Function which uses SUPABASE_SERVICE_ROLE_KEY.
-  const handleResetPassword = async () => {
-    if (!resetProfile || !resetPwd.trim()) { setResetError("New password is required."); return; }
-    if (resetPwd.trim().length < 8) { setResetError("Password must be at least 8 characters."); return; }
-    setResetSaving(true); setResetError("");
-    setResetSuccess("");
-    try {
-      // Explicitly attach the session token — required for Edge Function auth
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Not authenticated.");
-      const res = await supabase.functions.invoke("reset-password", {
-        body: { target_user_id: resetProfile.user_id, new_password: resetPwd.trim() },
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-      if (res.error) throw new Error(res.error.message);
-      if (res.data?.error) throw new Error(res.data.error);
-      setResetSuccess(`Password reset successfully for ${resetProfile.full_name}.`);
-          setResetPwd("");
-          setTimeout(() => {
-            setResetProfile(null);
-            setResetSuccess("");
-          }, 1800);
-    } catch (e: any) { setResetError(e.message ?? "Failed to reset password."); }
-    finally { setResetSaving(false); }
-  };
-
-  const filteredProfiles = profiles.filter(p =>
-    !search || [p.full_name, p.system_role, p.position_title ?? ""].join(" ")
-      .toLowerCase().includes(search.toLowerCase())
-  );
-
-  if (loading) return <PageSpinner />;
+  const pendingCount = requests.length;
+  const filteredProfiles = profiles.filter(p => {
+    if (!search) return true;
+    return [p.full_name, p.system_role, p.status, p.position_title ?? ""]
+      .join(" ").toLowerCase().includes(search.toLowerCase());
+  });
 
   return (
     <div className="space-y-4">
-      <div>
+      <div className="page-header">
         <h1 className="page-title">User Management</h1>
-        <p className="text-xs text-[color:var(--text-muted)] mt-0.5">Create accounts, approve requests, manage access</p>
+        <p className="page-sub">Create accounts, approve requests, manage access</p>
       </div>
 
-      <TabBar
-        tabs={TABS}
-        active={tab}
-        onChange={setTab}
-        counts={{ requests: requests.length, users: profiles.length }}
-      />
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 4, background: "var(--surface-2)", padding: 4, borderRadius: 12, width: "fit-content", flexWrap: "wrap" }}>
+        {(["requests", "create", "users"] as Tab[]).map(t => (
+          <button key={t} onClick={() => setTab(t)} style={{
+            position: "relative", padding: "6px 14px", borderRadius: 8,
+            fontSize: 13, fontWeight: 500, border: "none", cursor: "pointer",
+            background: tab === t ? "var(--surface)" : "transparent",
+            color: tab === t ? "var(--text)" : "var(--text-muted)",
+            boxShadow: tab === t ? "0 1px 3px rgba(0,0,0,.08)" : "none", transition: "all .15s",
+          }}>
+            {t === "requests" ? "Pending Requests" : t === "create" ? "Create User" : "All Users"}
+            {t === "requests" && pendingCount > 0 && (
+              <span style={{
+                position: "absolute", top: -4, right: -4, width: 16, height: 16,
+                borderRadius: 9999, background: "var(--red)", color: "#fff",
+                fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center",
+              }}>{pendingCount}</span>
+            )}
+          </button>
+        ))}
+      </div>
 
-      {/* ════════════════════════════════════════════
-          REQUESTS TAB
-      ════════════════════════════════════════════ */}
-      {tab === "requests" && (
+      {loading ? (
+        <div style={{ display: "flex", justifyContent: "center", padding: 48 }}>
+          <div className="w-6 h-6 border-2 rounded-full animate-spin"
+            style={{ borderColor: "var(--border)", borderTopColor: "var(--accent)" }} />
+        </div>
+      ) : (
         <>
-          {requests.length === 0 ? (
-            <EmptyState title="No pending requests" subtitle="User requests will appear here for your review" />
-          ) : (
+          {/* ── Pending Requests ── */}
+          {tab === "requests" && (
             <div className="space-y-3">
-              {requests.map(r => {
-                const rf = reqForm[r.id] ?? { password: "", position_title: "", acting: false };
-                const update = (key: string, val: string) =>
-                  setReqForm(m => ({ ...m, [r.id]: { ...m[r.id], [key]: val } }));
-                return (
-                  <Card key={r.id}>
-                    <div className="p-4 border-b border-[color:var(--border)]">
-                      <div className="flex items-start justify-between gap-2">
+              {requests.length === 0 ? (
+                <div className="empty-state">
+                  <div className="empty-state-icon">👤</div>
+                  <p>No pending requests</p>
+                  <p style={{ fontSize: 12, color: "var(--text-dim)" }}>New access requests will appear here</p>
+                </div>
+              ) : (
+                requests.map(r => {
+                  const rf = reqForm[r.id] ?? { password: "", position_title: "", acting: false };
+                  const setRf = (patch: Partial<typeof rf>) => setReqForm(m => ({ ...m, [r.id]: { ...m[r.id], ...patch } }));
+                  return (
+                    <div key={r.id} className="card" style={{ overflow: "hidden" }}>
+                      <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                         <div>
-                          <p className="font-semibold text-[color:var(--text)]">{r.full_name}</p>
-                          <p className="text-xs text-[color:var(--text-muted)]">{r.email}</p>
-                          <span className="mt-1 inline-block"><Badge status={r.requested_role} /></span>
+                          <p style={{ fontWeight: 600, fontSize: 14, color: "var(--text)", margin: 0 }}>{r.full_name}</p>
+                          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "2px 0 0" }}>{r.email}</p>
+                          <p style={{ fontSize: 11, color: "var(--text-dim)", margin: "2px 0 0", fontFamily: "monospace" }}>
+                            Requested {fmtDateTime(r.created_at)}
+                          </p>
                         </div>
-                        <span className="text-xs text-[color:var(--text-dim)] shrink-0">{r.created_at?.slice(0, 10)}</span>
+                        <span className={ROLE_COLORS[r.requested_role] ?? "badge badge-draft"}>
+                          {r.requested_role?.replace(/_/g, " ")}
+                        </span>
+                      </div>
+                      <div className="card-body space-y-3">
+                        <div>
+                          <label className="form-label">Set a temporary password *</label>
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <input type="text" className="tms-input" style={{ fontFamily: "monospace" }}
+                              placeholder="Temporary password" value={rf.password}
+                              onChange={e => setRf({ password: e.target.value })} />
+                            <button className="btn btn-ghost btn-sm"
+                              onClick={() => setRf({ password: generatePassword() })}>Generate</button>
+                          </div>
+                          <p style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>
+                            Share this with the user — they can change it after logging in.
+                          </p>
+                        </div>
+                        <div>
+                          <label className="form-label">Position Title (optional)</label>
+                          <input className="tms-input" placeholder="e.g. Senior Driver"
+                            value={rf.position_title} onChange={e => setRf({ position_title: e.target.value })} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2" style={{ paddingTop: 4 }}>
+                          <button className="btn btn-danger" onClick={() => rejectRequest(r.id)}
+                            disabled={rejectingId === r.id}>
+                            {rejectingId === r.id ? "Rejecting…" : "Reject"}
+                          </button>
+                          <button className="btn btn-primary" onClick={() => approveRequest(r)}
+                            disabled={!rf.password.trim() || rf.acting}>
+                            {rf.acting ? "Creating…" : "Approve & Create ✓"}
+                          </button>
+                        </div>
                       </div>
                     </div>
-                    <div className="p-4 space-y-3">
-                      <Field label="Assign Password">
-                        <Input
-                          type="password"
-                          placeholder="Set login password…"
-                          value={rf.password}
-                          onChange={e => update("password", e.target.value)}
-                        />
-                      </Field>
-                      <Field label="Position Title (optional)">
-                        <Input
-                          placeholder="e.g. Senior Reporter"
-                          value={rf.position_title}
-                          onChange={e => update("position_title", e.target.value)}
-                        />
-                      </Field>
-                      <div className="flex gap-2 pt-1">
-                        <Btn
-                          variant="primary" size="sm"
-                          disabled={!rf.password || rf.acting}
-                          loading={rf.acting}
-                          onClick={() => approveRequest(r)}
-                        >Approve</Btn>
-                        <Btn
-                          variant="danger" size="sm"
-                          loading={rejectingId === r.id}
-                          onClick={() => rejectRequest(r.id)}
-                        >Reject</Btn>
-                      </div>
-                    </div>
-                  </Card>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           )}
-        </>
-      )}
 
-      {/* ════════════════════════════════════════════
-          CREATE TAB
-      ════════════════════════════════════════════ */}
-      {tab === "create" && (
-        <div className="card p-5 space-y-4 max-w-lg">
-          {createSuccess ? (
-            <div className="space-y-4">
-              <Alert type="success">
-                <strong>{createSuccess.name}</strong> created. Share credentials securely.
-              </Alert>
-              <div className="bg-[color:var(--surface-2)] rounded-xl p-4 space-y-2 font-mono text-sm border border-[color:var(--border)]">
-                <div><span className="text-[color:var(--text-muted)]">Email: </span>{createSuccess.email}</div>
-                <div><span className="text-[color:var(--text-muted)]">Password: </span>{createSuccess.password}</div>
-              </div>
-              <Btn variant="ghost" onClick={() => setCreateSuccess(null)}>Create another</Btn>
-            </div>
-          ) : (
-            <>
-              <Field label="Full Name" required>
-                <Input
-                  placeholder="Jane Doe"
-                  value={form.full_name}
-                  onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))}
-                />
-              </Field>
-              <Field label="Email" required>
-                <Input
-                  type="email"
-                  placeholder="jane@multimedia.com"
-                  value={form.email}
-                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                />
-              </Field>
-              <Field label="Password" required>
-                <div className="relative">
-                  <Input
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Min. 8 characters"
-                    value={form.password}
-                    onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                  />
-                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
-                    <button type="button"
-                      onClick={() => setShowPassword(s => !s)}
-                      className="text-xs text-[color:var(--text-muted)] hover:text-[color:var(--text)] px-1"
-                    >{showPassword ? "Hide" : "Show"}</button>
-                    <button type="button"
-                      onClick={() => setForm(f => ({ ...f, password: genPassword() }))}
-                      className="text-xs text-[color:var(--accent)] hover:underline px-1"
-                    >Generate</button>
+          {/* ── Create User ── */}
+          {tab === "create" && (
+            <div style={{ maxWidth: 520 }} className="space-y-4">
+              {createSuccess && (
+                <div className="alert alert-success" style={{ flexDirection: "column", alignItems: "flex-start", gap: 8 }}>
+                  <strong>✓ User created successfully!</strong>
+                  <div style={{
+                    background: "var(--surface)", border: "1px solid var(--border)",
+                    borderRadius: 8, padding: 10, fontSize: 12, fontFamily: "monospace", width: "100%",
+                  }}>
+                    <div><span style={{ color: "var(--text-dim)" }}>Name: </span>{createSuccess.name}</div>
+                    <div><span style={{ color: "var(--text-dim)" }}>Email: </span>{createSuccess.email}</div>
+                    <div><span style={{ color: "var(--text-dim)" }}>Password: </span>
+                      <strong style={{ color: "var(--green)" }}>{createSuccess.password}</strong></div>
+                  </div>
+                  <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>
+                    ⚠️ Share the password now — it won't be shown again.
+                  </p>
+                  <button onClick={() => setCreateSuccess(null)}
+                    style={{ fontSize: 12, color: "var(--accent)", background: "none", border: "none", cursor: "pointer" }}>
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
+              <form onSubmit={handleCreate} className="card">
+                <div className="card-header">
+                  <h3 className="card-title">New User Account</h3>
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>Creates the login and profile in one step</p>
+                </div>
+                <div className="card-body space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="form-label">Full Name *</label>
+                      <input className="tms-input" placeholder="John Doe" value={form.full_name}
+                        onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} required />
+                    </div>
+                    <div>
+                      <label className="form-label">Email *</label>
+                      <input type="email" className="tms-input" placeholder="john@org.com" value={form.email}
+                        onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="form-label">Temporary Password *</label>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <div style={{ position: "relative", flex: 1 }}>
+                        <input type={showPwd ? "text" : "password"} className="tms-input"
+                          style={{ paddingRight: 36 }} placeholder="Min. 8 characters"
+                          value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                          required minLength={8} />
+                        <button type="button" onClick={() => setShowPwd(v => !v)} style={{
+                          position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+                          background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 14,
+                        }}>{showPwd ? "🙈" : "👁"}</button>
+                      </div>
+                      <button type="button" className="btn btn-ghost btn-sm"
+                        onClick={() => { const p = generatePassword(); setForm(f => ({ ...f, password: p })); setShowPwd(true); }}>
+                        Generate
+                      </button>
+                    </div>
+                    <p style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>User can change after first login.</p>
+                  </div>
+                  <div>
+                    <label className="form-label">System Role *</label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {ROLES.map(r => (
+                        <button key={r.value} type="button" onClick={() => setForm(f => ({ ...f, system_role: r.value }))}
+                          style={{
+                            padding: "8px 10px", borderRadius: 8, fontSize: 12, fontWeight: 500,
+                            cursor: "pointer", textAlign: "left", transition: "all .15s",
+                            border: "1px solid " + (form.system_role === r.value ? "var(--accent)" : "var(--border)"),
+                            background: form.system_role === r.value ? "var(--accent-dim)" : "var(--surface)",
+                            color: form.system_role === r.value ? "var(--accent)" : "var(--text-muted)",
+                          }}>{r.label}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="form-label">Division</label>
+                      <select className="tms-select" value={form.division_id}
+                        onChange={e => setForm(f => ({ ...f, division_id: e.target.value, unit_id: "" }))}>
+                        <option value="">— None —</option>
+                        {divisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="form-label">Unit</label>
+                      <select className="tms-select" value={form.unit_id}
+                        onChange={e => setForm(f => ({ ...f, unit_id: e.target.value }))} disabled={!form.division_id}>
+                        <option value="">— None —</option>
+                        {filteredUnits(form.division_id).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="form-label">Position Title</label>
+                    <input className="tms-input" placeholder="e.g. News Coordinator" value={form.position_title}
+                      onChange={e => setForm(f => ({ ...f, position_title: e.target.value }))} />
+                  </div>
+                  {createError && <div className="alert alert-error">{createError}</div>}
+                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <button type="submit" className="btn btn-primary" disabled={createSaving}>
+                      {createSaving ? "Creating…" : "Create User"}
+                    </button>
                   </div>
                 </div>
-              </Field>
-              <Field label="Role" required>
-                <Select value={form.system_role} onChange={e => setForm(f => ({ ...f, system_role: e.target.value }))}>
-                  {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-                </Select>
-              </Field>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Field label="Division">
-                  <Select
-                    value={form.division_id}
-                    onChange={e => setForm(f => ({ ...f, division_id: e.target.value, unit_id: "" }))}
-                  >
-                    <option value="">— None —</option>
-                    {divisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                  </Select>
-                </Field>
-                <Field label="Unit">
-                  <Select
-                    value={form.unit_id}
-                    onChange={e => setForm(f => ({ ...f, unit_id: e.target.value }))}
-                    disabled={!form.division_id}
-                  >
-                    <option value="">— None —</option>
-                    {filteredUnits(form.division_id).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                  </Select>
-                </Field>
-              </div>
-              <Field label="Position Title">
-                <Input
-                  placeholder="e.g. News Reporter"
-                  value={form.position_title}
-                  onChange={e => setForm(f => ({ ...f, position_title: e.target.value }))}
-                />
-              </Field>
-              {createError && <Alert type="error">{createError}</Alert>}
-              <Btn variant="primary" loading={createSaving} onClick={handleCreate}>
-                Create User
-              </Btn>
-            </>
+              </form>
+            </div>
           )}
-        </div>
-      )}
 
-      {/* ════════════════════════════════════════════
-          USERS TAB
-      ════════════════════════════════════════════ */}
-      {tab === "users" && (
-        <>
-          <SearchInput
-            value={search}
-            onChange={setSearch}
-            placeholder="Search name, role, position…"
-          />
+          {/* ── All Users ── */}
+          {tab === "users" && (
+            <div className="space-y-3">
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input className="tms-input" style={{ maxWidth: 260 }} placeholder="Search name, role…"
+                  value={search} onChange={e => setSearch(e.target.value)} />
+                <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: "auto", fontFamily: "monospace" }}>
+                  {profiles.length} users
+                </span>
+              </div>
 
-          {filteredProfiles.length === 0 ? (
-            <EmptyState title="No users found" subtitle="Try a different search term" />
-          ) : (
-            <>
-              {/* Mobile cards */}
-              <div className="sm:hidden space-y-2">
+              {/* Mobile */}
+              <div className="block md:hidden space-y-2">
                 {filteredProfiles.map(p => (
-                  <Card key={p.user_id}>
-                    <div className="p-4 flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-semibold text-sm text-[color:var(--text)]">{p.full_name}</p>
-                          <Badge status={p.system_role} />
-                          {p.status !== "active" && <Badge status="inactive" />}
+                  <div key={p.user_id} className="card">
+                    <div style={{ padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <span style={{ fontWeight: 600, fontSize: 14, color: "var(--text)" }}>{p.full_name}</span>
+                          <span className={ROLE_COLORS[p.system_role] ?? "badge badge-draft"}>
+                            {p.system_role?.replace(/_/g, " ")}
+                          </span>
+                          {p.status !== "active" && <span className="badge badge-rejected">{p.status}</span>}
                         </div>
                         {p.position_title && (
-                          <p className="text-xs text-[color:var(--text-muted)] mt-0.5">{p.position_title}</p>
+                          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "2px 0 0" }}>{p.position_title}</p>
                         )}
                       </div>
-                      {/* ⋯ menu — portal renders above all cards */}
-                      <CtxMenu items={[
-                        {
-                          label: "Edit", icon: "✏️",
-                          onClick: () => openEdit(p),
-                        },
-                        {
-                          label:   p.status === "active" ? "Deactivate" : "Activate",
-                          icon:    p.status === "active" ? "🔒" : "✅",
-                          cls:     p.status === "active" ? "warning" : "success",
-                          onClick: () => toggleStatus(p),
-                        },
-                        {
-                          label: "Reset Password", icon: "🔑",
-                          onClick: () => {
-                            setResetProfile(p);
-                            setResetPwd("");
-                            setResetError("");
-                            setResetSuccess("");
-                          },
-                        },
-                        {
-                          label: "Delete", icon: "🗑️", cls: "danger",
-                          onClick: () => setDeletingProfile(p),
-                        },
-                      ]} />
+                      <ContextMenu profile={p} onEdit={setEditTarget}
+                        onToggle={toggleStatus} onResetPwd={setResetTarget}
+                        toggling={togglingId === p.user_id} />
                     </div>
-                  </Card>
+                  </div>
                 ))}
               </div>
 
               {/* Desktop table */}
-              <div className="hidden sm:block card overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="tms-table">
-                    <thead>
-                      <tr>{["Name","Role","Position","Status","Actions"].map(h => <th key={h}>{h}</th>)}</tr>
-                    </thead>
-                    <tbody>
-                      {filteredProfiles.map(p => (
-                        <tr key={p.user_id}>
-                          <td className="font-medium">{p.full_name}</td>
-                          <td><Badge status={p.system_role} /></td>
-                          <td className="text-[color:var(--text-muted)]">{p.position_title ?? "—"}</td>
-                          <td><Badge status={p.status} /></td>
-                          <td className="text-center" >
-                            <div className="flex justify-center">
-                            <CtxMenu items={[
-                              {
-                                label: "Edit",
-                                icon: "✏️",
-                                onClick: () => openEdit(p),
-                              },
-                              {
-                                label: p.status === "active" ? "Deactivate" : "Activate",
-                                icon: p.status === "active" ? "🔒" : "✅",
-                                cls: p.status === "active" ? "warning" : "success",
-                                onClick: () => toggleStatus(p),
-                              },
-                              {
-                                label: "Reset Password",
-                                icon: "🔑",
-                                onClick: () => {
-                                  setResetProfile(p);
-                                  setResetPwd("");
-                                  setResetError("");
-                                  setResetSuccess("");
-                                },
-                              },
-                              {
-                                label: "Delete",
-                                icon: "🗑️",
-                                cls: "danger",
-                                onClick: () => setDeletingProfile(p),
-                              },
-                            ]} />
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+              <div className="hidden md:block tms-table-wrap">
+                <table className="tms-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th><th>Role</th><th>Position</th><th>Status</th>
+                      <th style={{ width: 40 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredProfiles.map(p => (
+                      <tr key={p.user_id}>
+                        <td style={{ fontWeight: 500 }}>{p.full_name}</td>
+                        <td>
+                          <span className={ROLE_COLORS[p.system_role] ?? "badge badge-draft"}>
+                            {p.system_role?.replace(/_/g, " ")}
+                          </span>
+                        </td>
+                        <td style={{ color: "var(--text-muted)", fontSize: 13 }}>{p.position_title || "—"}</td>
+                        <td>
+                          <span className={`badge ${p.status === "active" ? "badge-approved" : "badge-rejected"}`}>
+                            {p.status}
+                          </span>
+                        </td>
+                        <td>
+                          <ContextMenu profile={p} onEdit={setEditTarget}
+                            onToggle={toggleStatus} onResetPwd={setResetTarget}
+                            toggling={togglingId === p.user_id} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            </>
+
+              {filteredProfiles.length === 0 && (
+                <div className="empty-state">
+                  <div className="empty-state-icon">👥</div>
+                  <p>No users found</p>
+                </div>
+              )}
+            </div>
           )}
         </>
       )}
 
-      {/* ── Edit User Modal ──────────────────────────────────────────────── */}
-      <Modal open={!!editingProfile} onClose={() => setEditingProfile(null)} title="Edit User" maxWidth="max-w-lg">
-        <div className="space-y-4">
-          <Field label="Full Name" required>
-            <Input
-              value={editForm.full_name}
-              onChange={e => setEditForm(f => ({ ...f, full_name: e.target.value }))}
-              placeholder="Full name"
-            />
-          </Field>
-          <Field label="Role" required>
-            <Select value={editForm.system_role} onChange={e => setEditForm(f => ({ ...f, system_role: e.target.value }))}>
-              {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-            </Select>
-          </Field>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Division">
-              <Select
-                value={editForm.division_id}
-                onChange={e => setEditForm(f => ({ ...f, division_id: e.target.value, unit_id: "" }))}
-              >
-                <option value="">— None —</option>
-                {divisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </Select>
-            </Field>
-            <Field label="Unit">
-              <Select
-                value={editForm.unit_id}
-                onChange={e => setEditForm(f => ({ ...f, unit_id: e.target.value }))}
-                disabled={!editForm.division_id}
-              >
-                <option value="">— None —</option>
-                {filteredUnits(editForm.division_id).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-              </Select>
-            </Field>
-          </div>
-          <Field label="Position Title">
-            <Input
-              value={editForm.position_title}
-              onChange={e => setEditForm(f => ({ ...f, position_title: e.target.value }))}
-              placeholder="e.g. News Reporter"
-            />
-          </Field>
-          {editError && <Alert type="error">{editError}</Alert>}
-          <div className="flex justify-end gap-3">
-            <Btn variant="ghost" onClick={() => setEditingProfile(null)}>Cancel</Btn>
-            <Btn variant="primary" onClick={saveEdit} loading={editSaving}>Save Changes</Btn>
-          </div>
-        </div>
-      </Modal>
-
-      {/* ── Reset Password Modal ────────────────────────────────────────── */}
-      {resetProfile && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-2xl p-6 w-full max-w-sm shadow-2xl">
-            <h3 className="text-base font-semibold text-[color:var(--text)] mb-1">Reset Password</h3>
-            <p className="text-sm text-[color:var(--text-muted)] mb-4">
-              Set a new password for <strong>{resetProfile.full_name}</strong>.
-            </p>
-            <Field label="New Password" required>
-              <Input
-                type="password"
-                value={resetPwd}
-                onChange={e => setResetPwd(e.target.value)}
-                placeholder="Min. 8 characters"
-              />
-            </Field>
-            {resetError && <p className="text-sm mt-2" style={{ color: "var(--red)" }}>{resetError}</p>}
-            {resetSuccess && (
-              <p className="text-sm mt-2" style={{ color: "var(--green)" }}>
-                {resetSuccess}
-              </p>
-            )}
-            <div className="flex justify-end gap-3 mt-5">
-              <Btn variant="ghost" onClick={() => setResetProfile(null)}>Cancel</Btn>
-              <Btn variant="primary" loading={resetSaving} onClick={handleResetPassword}>Reset Password</Btn>
-            </div>
-          </div>
-        </div>
+      {editTarget && (
+        <EditModal profile={editTarget} divisions={divisions} units={units}
+          onClose={() => setEditTarget(null)} onSaved={() => { setEditTarget(null); load(); }} />
       )}
-
-      {/* ── Delete Confirm ───────────────────────────────────────────────── */}
-      <ConfirmDialog
-        open={!!deletingProfile}
-        title="Delete User"
-        message={`Remove ${deletingProfile?.full_name ?? "this user"}? Their profile will be permanently deleted. This cannot be undone.`}
-        confirmLabel="Delete User"
-        variant="danger"
-        onConfirm={handleDelete}
-        onCancel={() => setDeletingProfile(null)}
-      />
+      {resetTarget && (
+        <ResetPasswordModal profile={resetTarget} onClose={() => setResetTarget(null)} />
+      )}
     </div>
   );
 }

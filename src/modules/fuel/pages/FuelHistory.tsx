@@ -1,92 +1,231 @@
 // src/modules/fuel/pages/FuelHistory.tsx
+// Full fuel request audit trail — admin, transport_supervisor, corporate_approver
+// RLS allows these roles to see all rows.
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { PageSpinner, EmptyState, Badge, Card, SearchInput } from "@/components/TmsUI";
-import { fmtDateTime, fmtMoney } from "@/lib/utils";
+import { fmtDate, fmtMoney } from "@/lib/utils";
+import type { FuelRequest, FuelStatus } from "../services/fuel.service";
 
-const STATUS_OPTS = ["all","draft","submitted","approved","rejected","recorded"];
+type Enriched = FuelRequest & {
+  plate_number: string;
+  driver_name: string;
+  requester_name: string;
+};
+
+const STATUS_BADGE: Record<FuelStatus, string> = {
+  draft:     "badge badge-draft",
+  submitted: "badge badge-submitted",
+  approved:  "badge badge-approved",
+  rejected:  "badge badge-rejected",
+  recorded:  "badge badge-recorded",
+};
+
+const STATUS_OPTS: { value: FuelStatus | "all"; label: string }[] = [
+  { value: "all",       label: "All" },
+  { value: "submitted", label: "Submitted" },
+  { value: "approved",  label: "Approved" },
+  { value: "rejected",  label: "Rejected" },
+  { value: "recorded",  label: "Recorded" },
+  { value: "draft",     label: "Draft" },
+];
 
 export default function FuelHistory() {
-  const [rows,    setRows]    = useState<any[]>([]);
+  const [rows,    setRows]    = useState<Enriched[]>([]);
   const [loading, setLoading] = useState(true);
-  const [q,       setQ]       = useState("");
-  const [status,  setStatus]  = useState("all");
+  const [search,  setSearch]  = useState("");
+  const [status,  setStatus]  = useState<FuelStatus | "all">("all");
+  const [expanded, setExpanded] = useState<string | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.from("fuel_requests").select("*").order("created_at", { ascending: false }).limit(500);
-      setRows(data ?? []);
-      setLoading(false);
-    })();
-  }, []);
+  const load = async () => {
+    setLoading(true);
+
+    let q = supabase
+      .from("fuel_requests")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(500);
+
+    if (status !== "all") q = q.eq("status", status);
+
+    const { data } = await q;
+    const raw = (data ?? []) as FuelRequest[];
+
+    const vehicleIds  = [...new Set(raw.map(r => r.vehicle_id).filter(Boolean))];
+    const driverIds   = [...new Set(raw.map(r => r.driver_id).filter(Boolean))] as string[];
+    const creatorIds  = [...new Set(raw.map(r => r.created_by).filter(Boolean))];
+
+    const [{ data: vehicles }, { data: drivers }, { data: profiles }] = await Promise.all([
+      vehicleIds.length
+        ? supabase.from("vehicles").select("id,plate_number").in("id", vehicleIds)
+        : Promise.resolve({ data: [] }),
+      driverIds.length
+        ? supabase.from("drivers").select("id,full_name,license_number").in("id", driverIds)
+        : Promise.resolve({ data: [] }),
+      creatorIds.length
+        ? supabase.from("profiles").select("user_id,full_name").in("user_id", creatorIds)
+        : Promise.resolve({ data: [] }),
+    ]);
+
+    const vMap = Object.fromEntries((vehicles ?? []).map((v: any) => [v.id, v.plate_number]));
+    const dMap = Object.fromEntries((drivers  ?? []).map((d: any) => [d.id, d.full_name || d.license_number]));
+    const pMap = Object.fromEntries((profiles ?? []).map((p: any) => [p.user_id, p.full_name]));
+
+    setRows(raw.map(r => ({
+      ...r,
+      plate_number:   vMap[r.vehicle_id] ?? "—",
+      driver_name:    r.driver_id ? dMap[r.driver_id] ?? "—" : "—",
+      requester_name: pMap[r.created_by] ?? "—",
+    })));
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, [status]);
 
   const filtered = rows.filter(r => {
-    const matchQ = !q || (r.purpose ?? "").toLowerCase().includes(q.toLowerCase());
-    const matchS = status === "all" || r.status === status;
-    return matchQ && matchS;
+    if (!search) return true;
+    const s = search.toLowerCase();
+    return [r.purpose, r.plate_number, r.driver_name, r.requester_name, r.vendor, r.status]
+      .some(f => f?.toLowerCase().includes(s));
   });
 
-  if (loading) return <PageSpinner />;
+  // Summary stats
+  const totalRecorded = rows.filter(r => r.status === "recorded");
+  const totalLiters   = totalRecorded.reduce((s, r) => s + (r.liters  ?? 0), 0);
+  const totalAmount   = totalRecorded.reduce((s, r) => s + (r.amount  ?? 0), 0);
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="flex-1">
-          <SearchInput value={q} onChange={setQ} placeholder="Search purpose…" />
-        </div>
-        <select value={status} onChange={e => setStatus(e.target.value)} className="tms-select sm:w-40">
-          {STATUS_OPTS.map(s => <option key={s} value={s}>{s === "all" ? "All statuses" : s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
-        </select>
+      <div className="page-header">
+        <h1 className="page-title">Fuel History</h1>
+        <p className="page-sub">Complete fuel request audit trail</p>
       </div>
 
-      <p className="text-xs text-[color:var(--text-muted)]">{filtered.length} record{filtered.length !== 1 ? "s" : ""}</p>
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: "Total Requests",  value: rows.length,                       },
+          { label: "Recorded",        value: totalRecorded.length,              },
+          { label: "Total Litres",    value: totalLiters > 0 ? `${totalLiters.toFixed(1)} L` : "—" },
+          { label: "Total Amount",    value: totalAmount  > 0 ? fmtMoney(totalAmount) : "—"  },
+        ].map(s => (
+          <div key={s.label} className="stat-card">
+            <div className="stat-label">{s.label}</div>
+            <div className="stat-value">{s.value}</div>
+          </div>
+        ))}
+      </div>
 
-      {filtered.length === 0 ? (
-        <EmptyState title="No records found" subtitle="Try adjusting your filters" />
+      {/* Filters */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <input
+          className="tms-input"
+          style={{ maxWidth: 240 }}
+          placeholder="Search purpose, vehicle, driver…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          {STATUS_OPTS.map(o => (
+            <button
+              key={o.value}
+              className={`btn btn-sm ${status === o.value ? "btn-primary" : "btn-ghost"}`}
+              onClick={() => setStatus(o.value)}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: "auto" }}>
+          {filtered.length} result{filtered.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-12">
+          <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: "var(--border)", borderTopColor: "var(--accent)" }} />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-state-icon">📋</div>
+          <p>No fuel records found</p>
+        </div>
       ) : (
         <>
-          {/* Mobile */}
-          <div className="sm:hidden space-y-3">
+          {/* Mobile cards */}
+          <div className="block md:hidden space-y-2">
             {filtered.map(r => (
-              <Card key={r.id}>
-                <div className="p-4 space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm font-semibold text-[color:var(--text)] flex-1">{r.purpose || "—"}</p>
-                    <Badge status={r.status} />
+              <div key={r.id} className="card" style={{ overflow: "hidden" }}>
+                <button
+                  className="w-full text-left"
+                  style={{ padding: "12px 16px", background: "none", border: "none", cursor: "pointer" }}
+                  onClick={() => setExpanded(expanded === r.id ? null : r.id)}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text)" }}>{r.purpose || "Fuel Request"}</div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                        {r.plate_number} · {fmtDate(r.request_date)}
+                      </div>
+                    </div>
+                    <span className={STATUS_BADGE[r.status]}>{r.status}</span>
                   </div>
-                  <div className="flex gap-4 text-xs text-[color:var(--text-muted)]">
-                    <span>{r.fuel_type ?? "—"}</span>
-                    <span>{r.liters ?? "—"}L</span>
-                    <span>{fmtMoney(r.actual_cost ?? r.estimated_cost)}</span>
+                </button>
+                {expanded === r.id && (
+                  <div style={{ borderTop: "1px solid var(--border)", padding: "12px 16px" }}>
+                    <div className="grid grid-cols-2 gap-2" style={{ fontSize: 13 }}>
+                      {[
+                        ["Requester", r.requester_name],
+                        ["Driver",    r.driver_name],
+                        ["Litres",    r.liters  != null ? `${r.liters} L`    : "—"],
+                        ["Amount",    r.amount  != null ? fmtMoney(r.amount) : "—"],
+                        ["Vendor",    r.vendor  || "—"],
+                        ["Submitted", fmtDate(r.created_at)],
+                      ].map(([lbl, val]) => (
+                        <div key={lbl}>
+                          <div style={{ fontSize: 11, color: "var(--text-dim)" }}>{lbl}</div>
+                          <div style={{ color: "var(--text)", fontWeight: 500 }}>{val}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {r.notes && <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>{r.notes}</p>}
                   </div>
-                  <p className="text-xs text-[color:var(--text-dim)]">{fmtDateTime(r.created_at)}</p>
-                </div>
-              </Card>
+                )}
+              </div>
             ))}
           </div>
 
           {/* Desktop table */}
-          <div className="hidden sm:block card overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="tms-table">
-                <thead>
-                  <tr>{["Purpose","Type","Litres","Est.","Actual","Status","Date"].map(h => <th key={h}>{h}</th>)}</tr>
-                </thead>
-                <tbody>
-                  {filtered.map(r => (
-                    <tr key={r.id}>
-                      <td className="max-w-[160px] truncate font-medium">{r.purpose || "—"}</td>
-                      <td className="capitalize">{r.fuel_type ?? "—"}</td>
-                      <td>{r.liters ?? "—"}</td>
-                      <td>{fmtMoney(r.estimated_cost)}</td>
-                      <td>{fmtMoney(r.actual_cost)}</td>
-                      <td><Badge status={r.status} /></td>
-                      <td className="whitespace-nowrap text-[color:var(--text-muted)]">{fmtDateTime(r.created_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <div className="hidden md:block tms-table-wrap">
+            <table className="tms-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Purpose</th>
+                  <th>Vehicle</th>
+                  <th>Driver</th>
+                  <th>Requester</th>
+                  <th>Litres</th>
+                  <th>Amount</th>
+                  <th>Vendor</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(r => (
+                  <tr key={r.id}>
+                    <td style={{ whiteSpace: "nowrap" }}>{fmtDate(r.request_date)}</td>
+                    <td>{r.purpose || "—"}</td>
+                    <td>{r.plate_number}</td>
+                    <td>{r.driver_name}</td>
+                    <td>{r.requester_name}</td>
+                    <td>{r.liters  != null ? `${r.liters} L`    : "—"}</td>
+                    <td>{r.amount  != null ? fmtMoney(r.amount) : "—"}</td>
+                    <td>{r.vendor  || "—"}</td>
+                    <td><span className={STATUS_BADGE[r.status]}>{r.status}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </>
       )}
