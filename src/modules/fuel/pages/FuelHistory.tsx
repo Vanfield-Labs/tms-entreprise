@@ -4,14 +4,29 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { fmtDate, fmtMoney } from "@/lib/utils";
-import type { FuelRequest, FuelStatus } from "../services/fuel.service";
+
+type FuelStatus = "draft" | "submitted" | "approved" | "rejected" | "recorded";
+
+type FuelRequest = {
+  id: string;
+  vehicle_id: string | null;
+  driver_id: string | null;
+  created_by: string | null;
+  purpose: string | null;
+  liters: number | null;
+  amount: number | null;
+  vendor: string | null;
+  notes: string | null;
+  status: FuelStatus;
+  request_date: string | null;
+  created_at: string;
+};
 
 type Enriched = FuelRequest & {
   plate_number: string;
   driver_name: string;
   requester_name: string;
 };
-
 const STATUS_BADGE: Record<FuelStatus, string> = {
   draft:     "badge badge-draft",
   submitted: "badge badge-submitted",
@@ -72,9 +87,9 @@ export default function FuelHistory() {
 
     setRows(raw.map(r => ({
       ...r,
-      plate_number:   vMap[r.vehicle_id] ?? "—",
-      driver_name:    r.driver_id ? dMap[r.driver_id] ?? "—" : "—",
-      requester_name: pMap[r.created_by] ?? "—",
+      plate_number:   r.vehicle_id ? (vMap[r.vehicle_id] ?? "—") : "—",
+      driver_name:    r.driver_id ? (dMap[r.driver_id] ?? "—") : "—",
+      requester_name: r.created_by ? (pMap[r.created_by] ?? "—") : "—",
     })));
     setLoading(false);
   };
