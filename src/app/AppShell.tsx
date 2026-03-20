@@ -1,12 +1,12 @@
 // src/app/AppShell.tsx
-import { ReactNode, useEffect, useMemo, useState } from "react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/context/ThemeContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type ClickNavItem   = { label: string; onClick: () => void };
-type ElementNavItem = { label: string; element: ReactNode };
+type ClickNavItem   = { label: string; icon?: ReactNode; badge?: number; onClick: () => void };
+type ElementNavItem = { label: string; icon?: ReactNode; badge?: number; element: ReactNode };
 type NavItem        = ClickNavItem | ElementNavItem;
 
 type Props = {
@@ -21,46 +21,241 @@ function isElementItem(item: NavItem): item is ElementNavItem {
 }
 
 const ROLE_LABELS: Record<string, string> = {
-  admin:                "Administrator",
-  corporate_approver:   "Corporate Approver",
-  transport_supervisor: "Transport Supervisor",
-  driver:               "Driver",
-  unit_head:            "Unit Head",
-  staff:                "Staff",
+  admin: "Administrator", corporate_approver: "Corporate Approver",
+  transport_supervisor: "Transport Supervisor", driver: "Driver",
+  unit_head: "Unit Head", staff: "Staff",
 };
 
 const ROLE_COLORS: Record<string, string> = {
-  admin:                "bg-[color:var(--purple)]",
-  corporate_approver:   "bg-[color:var(--accent)]",
-  transport_supervisor: "bg-[color:var(--green)]",
-  driver:               "bg-[color:var(--cyan)]",
-  unit_head:            "bg-[color:var(--amber)]",
-  staff:                "bg-[color:var(--text-muted)]",
+  admin: "bg-[color:var(--purple)]", corporate_approver: "bg-[color:var(--accent)]",
+  transport_supervisor: "bg-[color:var(--green)]", driver: "bg-[color:var(--cyan)]",
+  unit_head: "bg-[color:var(--amber)]", staff: "bg-[color:var(--text-muted)]",
 };
 
-type ProfileData = {
-  full_name: string;
-  system_role: string;
-  unit_id: string | null;
-  position_title: string | null;
+// ─── Nav icons keyed by label fragment ───────────────────────────────────────
+function NavIcon({ label, collapsed }: { label: string; collapsed: boolean }) {
+  const l = label.toLowerCase();
+  const size = collapsed ? 18 : 15;
+  const cls = `shrink-0`;
+
+  const icon = (() => {
+    if (l.includes("dispatch"))      return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>;
+    if (l.includes("booking") || l.includes("new booking")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>;
+    if (l.includes("trip"))          return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>;
+    if (l.includes("shift") || l.includes("schedule")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><rect x="3" y="4" width="18" height="18" rx="2"/><path strokeLinecap="round" d="M16 2v4M8 2v4M3 10h18"/></svg>;
+    if (l.includes("mainten"))       return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>;
+    if (l.includes("incident"))      return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>;
+    if (l.includes("fuel"))          return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M5 3h10l2 4v12a1 1 0 01-1 1H6a1 1 0 01-1-1V7L5 3z"/><path strokeLinecap="round" d="M9 11h6"/></svg>;
+    if (l.includes("vehicle") || l.includes("fleet")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z"/><path strokeLinecap="round" strokeLinejoin="round" d="M13 6H5l-2 8h15l-1-5H9l-1 3"/></svg>;
+    if (l.includes("driver"))        return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><circle cx="12" cy="8" r="4"/><path strokeLinecap="round" d="M6 20v-1a6 6 0 0112 0v1"/></svg>;
+    if (l.includes("report") || l.includes("audit")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>;
+    if (l.includes("user"))          return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0"/></svg>;
+    if (l.includes("mileage"))       return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path strokeLinecap="round" d="M12 8v4l3 3"/></svg>;
+    if (l.includes("division"))      return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>;
+    if (l.includes("approv"))        return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
+    if (l.includes("profile"))       return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>;
+    if (l.includes("close"))         return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>;
+    if (l.includes("record fuel"))   return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>;
+    // default
+    return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><circle cx="12" cy="12" r="9"/><path strokeLinecap="round" d="M12 8v4l2 2"/></svg>;
+  })();
+
+  return <span className={cls}>{icon}</span>;
+}
+
+// ─── Notification Bell ────────────────────────────────────────────────────────
+type NotifRow = {
+  id: string; title: string; body: string; is_read: boolean;
+  created_at: string; entity_type: string | null; entity_id: string | null;
 };
+
+function timeAgo(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+function NotificationBell({ userId, onNavigate }: { userId: string; onNavigate: (entityType: string) => void }) {
+  const [notifs, setNotifs] = useState<NotifRow[]>([]);
+  const [open, setOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  const load = async () => {
+    const { data } = await supabase
+      .from("notifications")
+      .select("id,title,body,is_read,created_at,entity_type,entity_id")
+      .eq("recipient_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(30);
+    setNotifs((data as NotifRow[]) || []);
+  };
+
+  useEffect(() => { load(); }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    const ch = supabase.channel(`notifs-${userId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `recipient_id=eq.${userId}` }, () => load())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [userId]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    if (open) document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const unread = notifs.filter(n => !n.is_read).length;
+
+  const markRead = async (id: string, entityType: string | null) => {
+    await supabase.from("notifications").update({ is_read: true, read_at: new Date().toISOString() }).eq("id", id);
+    setNotifs(n => n.map(x => x.id === id ? { ...x, is_read: true } : x));
+    if (entityType) onNavigate(entityType);
+    setOpen(false);
+  };
+
+  const markAllRead = async () => {
+    await supabase.from("notifications").update({ is_read: true, read_at: new Date().toISOString() })
+      .eq("recipient_id", userId).eq("is_read", false);
+    setNotifs(n => n.map(x => ({ ...x, is_read: true })));
+  };
+
+  const clearAll = async () => {
+    await supabase.from("notifications").delete().eq("recipient_id", userId);
+    setNotifs([]);
+  };
+
+  const ENTITY_ICON: Record<string, string> = {
+    booking: "📋", fuel_request: "⛽", maintenance: "🔧", incident: "🚨", user: "👤",
+  };
+
+  return (
+    <div className="relative" ref={panelRef}>
+      <button
+        onClick={() => { setOpen(o => !o); if (!open) load(); }}
+        className="relative p-2 rounded-lg text-[color:var(--text-muted)] hover:bg-[color:var(--surface-2)] hover:text-[color:var(--text)] transition-colors"
+        aria-label="Notifications"
+      >
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+        </svg>
+        {unread > 0 && (
+          <span className="absolute top-1 right-1 min-w-[16px] h-4 px-0.5 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+            style={{ background: "var(--red)" }}>
+            {unread > 9 ? "9+" : unread}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 rounded-2xl shadow-2xl border overflow-hidden z-50"
+          style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
+          <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border)" }}>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-sm" style={{ color: "var(--text)" }}>Notifications</span>
+              {unread > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-xs font-bold text-white" style={{ background: "var(--red)" }}>{unread}</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {unread > 0 && <button onClick={markAllRead} className="text-xs font-medium" style={{ color: "var(--accent)" }}>Mark all read</button>}
+              {notifs.length > 0 && <button onClick={clearAll} className="text-xs" style={{ color: "var(--text-muted)" }}>Clear all</button>}
+            </div>
+          </div>
+          <div className="overflow-y-auto" style={{ maxHeight: 380 }}>
+            {notifs.length === 0 ? (
+              <div className="py-10 text-center">
+                <div className="text-3xl mb-2">🔔</div>
+                <p className="text-sm" style={{ color: "var(--text-muted)" }}>No notifications yet</p>
+              </div>
+            ) : (
+              <div className="divide-y" style={{ borderColor: "var(--border)" }}>
+                {notifs.map(n => (
+                  <button
+                    key={n.id}
+                    onClick={() => markRead(n.id, n.entity_type)}
+                    className="w-full text-left px-4 py-3 transition-colors hover:bg-[color:var(--surface-2)]"
+                    style={{ background: n.is_read ? "transparent" : "color-mix(in srgb, var(--accent-dim) 30%, transparent)" }}
+                  >
+                    <div className="flex items-start gap-3">
+                      <span className="text-lg shrink-0 mt-0.5">{ENTITY_ICON[n.entity_type ?? ""] ?? "🔔"}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-xs font-semibold truncate" style={{ color: "var(--text)" }}>{n.title}</p>
+                          {!n.is_read && <div className="w-2 h-2 rounded-full shrink-0 mt-1" style={{ background: "var(--accent)" }} />}
+                        </div>
+                        <p className="text-xs mt-0.5 line-clamp-2" style={{ color: "var(--text-muted)" }}>{n.body}</p>
+                        <p className="text-[10px] mt-1 font-mono" style={{ color: "var(--text-dim)" }}>{timeAgo(n.created_at)}</p>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Confirm Dialog ───────────────────────────────────────────────────────────
+function ConfirmDialog({
+  open, title, message, confirmLabel = "Confirm", variant = "danger",
+  onConfirm, onCancel,
+}: {
+  open: boolean; title: string; message: string; confirmLabel?: string;
+  variant?: "danger" | "primary"; onConfirm: () => void; onCancel: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}>
+      <div className="w-full max-w-sm rounded-2xl border shadow-2xl p-6"
+        style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
+        <h3 className="text-base font-semibold mb-2" style={{ color: "var(--text)" }}>{title}</h3>
+        <p className="text-sm mb-5" style={{ color: "var(--text-muted)" }}>{message}</p>
+        <div className="flex justify-end gap-3">
+          <button onClick={onCancel} className="btn btn-ghost">Cancel</button>
+          <button onClick={onConfirm}
+            className={`btn ${variant === "danger" ? "btn-danger" : "btn-primary"}`}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── AppShell ─────────────────────────────────────────────────────────────────
 export default function AppShell({ title, nav, navItems, children }: Props) {
   const { theme, toggleTheme } = useTheme();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Desktop sidebar: open by default on login; can be toggled via logo click
+  const [sidebarOpen, setSidebarOpen] = useState(false);      // mobile overlay
+  const [desktopCollapsed, setDesktopCollapsed] = useState(false); // desktop collapse
   const [activeIndex, setActiveIndex] = useState(0);
-  const [profile,  setProfile]  = useState<ProfileData | null>(null);
+  const [profile, setProfile] = useState<{ full_name: string; system_role: string; unit_id: string | null; position_title: string | null } | null>(null);
   const [unitName, setUnitName] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string>("");
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
+  // Nav badge counts: keyed by nav label
+  const [navBadges, setNavBadges] = useState<Record<string, number>>({});
 
   const items = useMemo<NavItem[]>(() => {
     if (navItems?.length) return navItems;
-    if (nav?.length)      return nav;
+    if (nav?.length) return nav;
     return [];
   }, [nav, navItems]);
 
-  const hasProfile      = items.length > 0 && items[items.length - 1].label.toLowerCase().includes("profile");
-  const baseItems       = hasProfile ? items.slice(0, -1) : items;
+  const hasProfile = items.length > 0 && items[items.length - 1].label.toLowerCase().includes("profile");
+  const baseItems = hasProfile ? items.slice(0, -1) : items;
   const isProfileActive = hasProfile && activeIndex === items.length - 1;
 
   const go = (i: number) => {
@@ -70,50 +265,87 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
     if (item && !isElementItem(item)) item.onClick();
   };
 
-  const activeItem  = items[activeIndex];
+  const activeItem = items[activeIndex];
   const activeLabel = activeItem?.label ?? "";
 
   const handleSignOut = async () => {
+    setShowSignOutConfirm(false);
     await supabase.auth.signOut();
     window.location.href = "/login";
   };
 
+  // Load profile + set userId
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
+      setUserId(user.id);
       const { data: p } = await supabase
-        .from("profiles")
-        .select("full_name, system_role, unit_id, position_title")
-        .eq("user_id", user.id)
-        .single();
+        .from("profiles").select("full_name,system_role,unit_id,position_title")
+        .eq("user_id", user.id).single();
       if (!p) return;
-      setProfile(p as ProfileData);
-      if ((p as ProfileData).unit_id) {
-        const { data: u } = await supabase
-          .from("units").select("name")
-          .eq("id", (p as ProfileData).unit_id!).single();
-        if (u) setUnitName((u as any).name as string);
+      setProfile(p as any);
+      if ((p as any).unit_id) {
+        const { data: u } = await supabase.from("units").select("name").eq("id", (p as any).unit_id).single();
+        if (u) setUnitName((u as any).name);
       }
     })();
   }, []);
 
-  const roleLabel       = ROLE_LABELS[profile?.system_role ?? ""] ?? profile?.system_role ?? "";
-  const roleColor       = ROLE_COLORS[profile?.system_role ?? ""] ?? "bg-[color:var(--text-muted)]";
-  const initials        = profile?.full_name
+  // Load pending counts for nav badges
+  useEffect(() => {
+    if (!profile) return;
+    const role = profile.system_role;
+    const badges: Record<string, number> = {};
+    const promises: Promise<void>[] = [];
+
+    const qCount = async (label: string, table: string, filter: Record<string, string>) => {
+      let q = supabase.from(table).select("id", { count: "exact", head: true });
+      for (const [col, val] of Object.entries(filter)) q = q.eq(col, val);
+      const { count } = await q;
+      if (count && count > 0) badges[label] = count;
+    };
+
+    if (role === "corporate_approver" || role === "admin") {
+      promises.push(qCount("Booking Approvals", "bookings", { status: "submitted" }));
+      promises.push(qCount("Fuel Approvals", "fuel_requests", { status: "submitted" }));
+      promises.push(qCount("Maintenance Approvals", "maintenance_requests", { status: "reported" }));
+    }
+    if (role === "transport_supervisor" || role === "admin") {
+      promises.push(qCount("Dispatch", "bookings", { status: "approved" }));
+      promises.push(qCount("Record Fuel", "fuel_requests", { status: "approved" }));
+      promises.push(qCount("Close Trips", "bookings", { status: "completed" }));
+    }
+    if (role === "admin") {
+      promises.push(qCount("Users", "user_requests", { status: "pending" }));
+    }
+
+    Promise.all(promises).then(() => setNavBadges({ ...badges }));
+  }, [profile]);
+
+  // Navigate to a page by entity type (for notification clicks)
+  const navigateByEntity = (entityType: string) => {
+    const entityToLabel: Record<string, string> = {
+      booking: "My Bookings", fuel_request: "Fuel Request",
+      maintenance: "Maintenance", incident: "Incidents",
+    };
+    const target = entityToLabel[entityType];
+    if (!target) return;
+    const idx = items.findIndex(it => it.label === target);
+    if (idx >= 0) go(idx);
+  };
+
+  const roleLabel = ROLE_LABELS[profile?.system_role ?? ""] ?? profile?.system_role ?? "";
+  const roleColor = ROLE_COLORS[profile?.system_role ?? ""] ?? "bg-[color:var(--text-muted)]";
+  const initials = profile?.full_name
     ? profile.full_name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()
     : "?";
-  // Sidebar logo subtitle: unit name if set, else role
-  const logoSubtitle    = unitName ?? roleLabel;
+  const logoSubtitle = unitName ?? roleLabel;
 
-  // ── ThemeToggle — used in mobile bar AND desktop header, NOT in sidebar ──
   const ThemeToggle = () => (
-    <button
-      onClick={toggleTheme}
+    <button onClick={toggleTheme}
       aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-      title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-      className="p-2 rounded-lg text-[color:var(--text-muted)] hover:bg-[color:var(--surface-2)] hover:text-[color:var(--text)] transition-colors"
-    >
+      className="p-2 rounded-lg text-[color:var(--text-muted)] hover:bg-[color:var(--surface-2)] hover:text-[color:var(--text)] transition-colors">
       {theme === "dark" ? (
         <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
           <circle cx="12" cy="12" r="5"/>
@@ -130,11 +362,20 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-[color:var(--bg)]">
 
-      {/* ══════════════════════════════════════════════════════════
+      {/* ── Confirm sign out ── */}
+      <ConfirmDialog
+        open={showSignOutConfirm}
+        title="Sign Out"
+        message="Are you sure you want to sign out of TMS Portal?"
+        confirmLabel="Sign Out"
+        variant="danger"
+        onConfirm={handleSignOut}
+        onCancel={() => setShowSignOutConfirm(false)}
+      />
+
+      {/* ══════════════════════════════════════════════════════
           MOBILE TOP BAR
-          Theme toggle + avatar sit here only.
-          Sidebar has zero ThemeToggles.
-      ══════════════════════════════════════════════════════════ */}
+      ══════════════════════════════════════════════════════ */}
       <header className="lg:hidden flex items-center justify-between h-14 px-4
         border-b border-[color:var(--border)] bg-[color:var(--surface)] shrink-0 z-30">
         <button onClick={() => setSidebarOpen(true)}
@@ -144,18 +385,14 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
           </svg>
         </button>
-
         <span className="text-sm font-semibold text-[color:var(--text)] truncate px-3">{activeLabel}</span>
-
         <div className="flex items-center gap-1 shrink-0">
           <ThemeToggle />
+          {userId && <NotificationBell userId={userId} onNavigate={navigateByEntity} />}
           {profile && (
-            <button
-              onClick={() => hasProfile ? go(items.length - 1) : undefined}
-              className={`w-8 h-8 rounded-full ${roleColor} flex items-center justify-center
-                text-white text-xs font-bold hover:opacity-80 transition-opacity`}
-              title={`${profile.full_name} — tap to view profile`}
-            >
+            <button onClick={() => hasProfile ? go(items.length - 1) : undefined}
+              className={`w-8 h-8 rounded-full ${roleColor} flex items-center justify-center text-white text-xs font-bold hover:opacity-80 transition-opacity`}
+              title={profile.full_name}>
               {initials}
             </button>
           )}
@@ -164,31 +401,32 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
 
       <div className="flex flex-1 overflow-hidden">
 
-        {/* Backdrop */}
+        {/* Backdrop (mobile) */}
         {sidebarOpen && (
           <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden"
             onClick={() => setSidebarOpen(false)} />
         )}
 
-        {/* ══════════════════════════════════════════════════════════
+        {/* ══════════════════════════════════════════════════════
             SIDEBAR
-            • NO ThemeToggle anywhere here
-            • Logo subtitle = unit name (falls back to role)
-            • Footer = Profile link (if present) + Sign out ONLY
-              No profile info card at all
-        ══════════════════════════════════════════════════════════ */}
+            - Desktop: collapsible (logo click toggles)
+            - When collapsed: shows icons + badge dots only
+            - Mobile: slide-in overlay
+        ══════════════════════════════════════════════════════ */}
         <aside className={`
           fixed inset-y-0 left-0 z-50 flex flex-col
-          w-72 lg:w-64 xl:w-72
           bg-[color:var(--surface)] border-r border-[color:var(--border)]
-          transition-transform duration-200 ease-in-out
+          transition-all duration-200 ease-in-out
           lg:static lg:z-auto lg:translate-x-0
-          ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
+          ${sidebarOpen ? "translate-x-0 w-72" : "-translate-x-full w-72"}
+          ${desktopCollapsed ? "lg:w-16" : "lg:w-64 xl:w-72"}
         `}>
-
-          {/* Logo row — close button only, NO theme toggle */}
-          <div className="flex items-center justify-between px-5 py-5
-            border-b border-[color:var(--border)] shrink-0">
+          {/* Logo row — click to toggle desktop collapse */}
+          <div
+            className="flex items-center justify-between px-4 py-5 border-b border-[color:var(--border)] shrink-0 cursor-pointer select-none"
+            onClick={() => setDesktopCollapsed(c => !c)}
+            title={desktopCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
             <div className="flex items-center gap-3 min-w-0">
               <div className="w-8 h-8 rounded-lg bg-[color:var(--text)] flex items-center justify-center shrink-0">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -198,129 +436,131 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
                   <rect x="9" y="9" width="6" height="6" rx="1" fill="var(--bg)"/>
                 </svg>
               </div>
-              <div className="min-w-0">
+              {!desktopCollapsed && (
+                <div className="min-w-0 hidden lg:block">
+                  <p className="text-sm font-bold text-[color:var(--text)] leading-tight">TMS Portal</p>
+                  <p className="text-[10px] text-[color:var(--text-muted)] uppercase tracking-widest truncate">{logoSubtitle}</p>
+                </div>
+              )}
+              {/* Always show on mobile expanded */}
+              <div className="min-w-0 lg:hidden">
                 <p className="text-sm font-bold text-[color:var(--text)] leading-tight">TMS Portal</p>
-                {/* Unit name shown here — not role, not title */}
-                <p className="text-[10px] text-[color:var(--text-muted)] uppercase tracking-widest truncate">
-                  {logoSubtitle}
-                </p>
+                <p className="text-[10px] text-[color:var(--text-muted)] uppercase tracking-widest truncate">{logoSubtitle}</p>
               </div>
             </div>
-            {/* Mobile close — no theme toggle */}
-            <button onClick={() => setSidebarOpen(false)}
-              className="lg:hidden p-1.5 rounded-lg text-[color:var(--text-muted)]
-                hover:bg-[color:var(--surface-2)] transition-colors shrink-0"
-              aria-label="Close sidebar">
+            {/* Mobile close button */}
+            <button onClick={e => { e.stopPropagation(); setSidebarOpen(false); }}
+              className="lg:hidden p-1.5 rounded-lg text-[color:var(--text-muted)] hover:bg-[color:var(--surface-2)] shrink-0">
               <svg width="16" height="16" fill="none" viewBox="0 0 18 18">
                 <path d="M4 4 14 14M14 4 4 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
               </svg>
             </button>
+            {/* Desktop collapse indicator */}
+            {!desktopCollapsed && (
+              <div className="hidden lg:flex p-1 rounded-md text-[color:var(--text-dim)] hover:text-[color:var(--text-muted)]">
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7M18 19l-7-7 7-7"/>
+                </svg>
+              </div>
+            )}
           </div>
 
-          {/* Nav */}
-          <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
+          {/* Nav items */}
+          <nav className={`flex-1 overflow-y-auto py-3 space-y-0.5 ${desktopCollapsed ? "px-2" : "px-3"}`}>
             {baseItems.map((item, i) => {
               const isActive = i === activeIndex && !isProfileActive;
+              const badge = navBadges[item.label] ?? 0;
               return (
-                <button key={i} onClick={() => go(i)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
-                    text-left transition-all min-h-[44px] group
+                <button
+                  key={i}
+                  onClick={() => go(i)}
+                  title={desktopCollapsed ? item.label : undefined}
+                  className={`
+                    w-full flex items-center rounded-xl text-sm font-medium text-left
+                    transition-all min-h-[44px] relative group
+                    ${desktopCollapsed ? "justify-center px-0 py-3" : "gap-3 px-3 py-2.5"}
                     ${isActive
                       ? "bg-[color:var(--text)] text-[color:var(--bg)] shadow-sm"
                       : "text-[color:var(--text-muted)] hover:bg-[color:var(--surface-2)] hover:text-[color:var(--text)]"
-                    }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors
-                    ${isActive
-                      ? "bg-[color:var(--bg)]"
-                      : "bg-[color:var(--border-bright)] group-hover:bg-[color:var(--text-muted)]"}`}
-                  />
-                  {item.label}
+                    }
+                  `}
+                >
+                  <span style={{ color: isActive ? "var(--bg)" : "currentColor" }}>
+                    <NavIcon label={item.label} collapsed={desktopCollapsed} />
+                  </span>
+
+                  {!desktopCollapsed && <span className="flex-1 truncate">{item.label}</span>}
+
+                  {/* Badge */}
+                  {badge > 0 && !desktopCollapsed && (
+                    <span className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+                      style={{ background: "var(--red)" }}>
+                      {badge > 99 ? "99+" : badge}
+                    </span>
+                  )}
+                  {badge > 0 && desktopCollapsed && (
+                    <span className="absolute top-1 right-1 w-2 h-2 rounded-full" style={{ background: "var(--red)" }} />
+                  )}
+
+                  {/* Tooltip on collapsed */}
+                  {desktopCollapsed && (
+                    <span className="absolute left-full ml-2 px-2 py-1 rounded-lg text-xs font-medium whitespace-nowrap z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                      style={{ background: "var(--text)", color: "var(--bg)" }}>
+                      {item.label}{badge > 0 ? ` (${badge})` : ""}
+                    </span>
+                  )}
                 </button>
               );
             })}
           </nav>
 
-          {/* Footer — Profile link + Sign out. No info card. */}
-          <div className="border-t border-[color:var(--border)] px-4 py-4 shrink-0 space-y-0.5">
-           {/*} {hasProfile && profile && (
-              <button onClick={() => go(items.length - 1)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl
-                  text-sm font-medium text-left transition-all min-h-[44px] group
-                  ${isProfileActive
-                    ? "bg-[color:var(--text)] text-[color:var(--bg)] shadow-sm"
-                    : "text-[color:var(--text-muted)] hover:bg-[color:var(--surface-2)] hover:text-[color:var(--text)]"
-                  }`}>
-                <div className={`w-6 h-6 rounded-full ${roleColor} flex items-center justify-center
-                  text-white text-[10px] font-bold shrink-0`}>
-                  {initials}
-                </div>
-                <span>Profile</span>
-              </button>
-            )} */}
-
-            <button onClick={handleSignOut}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm
-                text-[color:var(--text-muted)] hover:bg-[color:var(--red)]/10
-                hover:text-[color:var(--red)] transition-colors min-h-[44px]">
+          {/* Footer: sign out only */}
+          <div className={`border-t border-[color:var(--border)] shrink-0 ${desktopCollapsed ? "px-2 py-3" : "px-4 py-4"}`}>
+            <button
+              onClick={() => setShowSignOutConfirm(true)}
+              title={desktopCollapsed ? "Sign out" : undefined}
+              className={`
+                w-full flex items-center rounded-xl text-sm min-h-[44px] transition-colors
+                text-[color:var(--text-muted)] hover:bg-[color:var(--red)]/10 hover:text-[color:var(--red)]
+                ${desktopCollapsed ? "justify-center px-0 py-3" : "gap-2.5 px-3 py-2.5"}
+              `}
+            >
               <svg width="15" height="15" fill="none" viewBox="0 0 16 16">
                 <path d="M6 2H3a1 1 0 00-1 1v10a1 1 0 001 1h3M10 11l3-3-3-3M13 8H6"
                   stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
-              Sign out
+              {!desktopCollapsed && <span>Sign out</span>}
             </button>
           </div>
         </aside>
 
-        {/* ══════════════════════════════════════════════════════════
+        {/* ══════════════════════════════════════════════════════
             MAIN CONTENT
-        ══════════════════════════════════════════════════════════ */}
-        {/*
-          ── IMPORTANT: <main> has NO overflow property.
-          overflow on a containing block traps position:fixed children (WebKit/Blink).
-          The scroll lives on the inner #page-scroll div instead.
-        */}
+        ══════════════════════════════════════════════════════ */}
         <main className="flex-1 min-w-0 bg-[color:var(--bg)]" style={{ display: "flex", flexDirection: "column" }}>
 
           {/* Desktop sticky header */}
           <div className="hidden lg:flex items-center justify-between px-8 py-4
             border-b border-[color:var(--border)] bg-[color:var(--surface)] shrink-0"
             style={{ zIndex: 20 }}>
-            <div>
-              <h1 className="text-base font-bold text-[color:var(--text)] tracking-tight leading-tight">
-                {activeLabel}
-              </h1>
-              <p className="text-[11px] text-[color:var(--text-muted)] mt-0.5 uppercase tracking-wider font-mono">
-                {/*{title} · {roleLabel}*/}
-              </p>
-            </div>
-
+            <h1 className="text-base font-bold text-[color:var(--text)] tracking-tight">{activeLabel}</h1>
             <div className="flex items-center gap-2">
               <ThemeToggle />
+              {userId && <NotificationBell userId={userId} onNavigate={navigateByEntity} />}
               {profile && (
-                <button
-                  onClick={() => hasProfile ? go(items.length - 1) : undefined}
+                <button onClick={() => hasProfile ? go(items.length - 1) : undefined}
                   title="View profile"
-                  className={`flex items-center gap-2.5 px-3 py-2 rounded-xl
-                    border border-[color:var(--border)]
-                    hover:bg-[color:var(--surface-2)] hover:border-[color:var(--border-bright)]
-                    transition-all group
-                    ${isProfileActive
-                      ? "bg-[color:var(--surface-2)] border-[color:var(--border-bright)]"
-                      : "bg-transparent"}`}>
-                  <div className={`w-7 h-7 rounded-full ${roleColor} flex items-center justify-center
-                    text-white text-[10px] font-bold shrink-0`}>
+                  className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border transition-all group
+                    ${isProfileActive ? "bg-[color:var(--surface-2)] border-[color:var(--border-bright)]" : "border-[color:var(--border)] hover:bg-[color:var(--surface-2)] hover:border-[color:var(--border-bright)]"}`}>
+                  <div className={`w-7 h-7 rounded-full ${roleColor} flex items-center justify-center text-white text-[10px] font-bold shrink-0`}>
                     {initials}
                   </div>
                   <div className="text-left min-w-0">
-                    <p className="text-xs font-semibold text-[color:var(--text)] truncate max-w-[140px]">
-                      {profile.full_name}
-                    </p>
-                    <p className="text-[10px] text-[color:var(--text-muted)] truncate">
-                      {profile.position_title ?? roleLabel}
-                    </p>
+                    <p className="text-xs font-semibold truncate max-w-[140px]" style={{ color: "var(--text)" }}>{profile.full_name}</p>
+                    <p className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>{profile.position_title ?? roleLabel}</p>
                   </div>
-                  <svg width="12" height="12" fill="none" viewBox="0 0 12 12"
-                    className="text-[color:var(--text-dim)] group-hover:text-[color:var(--text-muted)] transition-colors shrink-0 ml-0.5">
+                  <svg width="12" height="12" fill="none" viewBox="0 0 12 12" className="shrink-0 ml-0.5"
+                    style={{ color: "var(--text-dim)" }}>
                     <path d="M4.5 3l3 3-3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </button>
@@ -328,7 +568,7 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
             </div>
           </div>
 
-          {/* ── Scrollable page content — overflow lives HERE, not on <main> ── */}
+          {/* Scrollable content */}
           <div id="page-scroll" style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
             <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto w-full">
               <ErrorBoundary>

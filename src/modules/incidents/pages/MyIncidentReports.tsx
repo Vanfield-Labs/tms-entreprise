@@ -8,11 +8,13 @@ type Incident = {
   id: string; incident_type: string; title: string; description: string;
   status: string; priority: string; created_at: string; updated_at: string;
   supervisor_notes: string | null; acknowledged_at: string | null; resolved_at: string | null;
+  acknowledged_by: string | null; resolved_by: string | null;
   attachments: { url: string; name: string; type: string }[];
-  vehicles: { plate_number: string } | null;
-  acknowledged_profiles: { full_name: string } | null;
-  resolved_profiles: { full_name: string } | null;
+  vehicle_id: string | null;
 };
+
+type VehicleMap = Record<string, string>;   // id → plate_number
+type ProfileMap = Record<string, string>;   // user_id → full_name
 
 const STATUS_STEPS = ["open", "acknowledged", "in_progress", "resolved"];
 const STATUS_LABEL: Record<string, string> = {
@@ -27,6 +29,8 @@ const TYPE_ICON: Record<string, string> = {
 
 export default function MyIncidentReports() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [vehicleMap, setVehicleMap] = useState<VehicleMap>({});
+  const [profileMap, setProfileMap] = useState<ProfileMap>({});
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -34,15 +38,44 @@ export default function MyIncidentReports() {
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
-    const { data } = await supabase.from("incident_reports")
-      .select(`id,incident_type,title,description,status,priority,created_at,updated_at,
-        supervisor_notes,acknowledged_at,resolved_at,attachments,
-        vehicles(plate_number),
-        acknowledged_profiles:acknowledged_by(full_name),
-        resolved_profiles:resolved_by(full_name)`)
+
+    // Fetch own incidents — no profile joins to avoid RLS recursion
+    const { data, error } = await supabase
+      .from("incident_reports")
+      .select("id,incident_type,title,description,status,priority,created_at,updated_at,supervisor_notes,acknowledged_at,resolved_at,acknowledged_by,resolved_by,attachments,vehicle_id")
       .eq("reported_by", user.id)
       .order("created_at", { ascending: false });
-    setIncidents((data as unknown as Incident[]) || []);
+
+    if (error) {
+      console.error("MyIncidentReports:", error.message);
+      setLoading(false);
+      return;
+    }
+
+    const rows = (data as Incident[]) || [];
+    setIncidents(rows);
+
+    // Two-pass: vehicle names
+    const vehicleIds = [...new Set(rows.map(r => r.vehicle_id).filter(Boolean))] as string[];
+    if (vehicleIds.length) {
+      const { data: vd } = await supabase.from("vehicles").select("id,plate_number").in("id", vehicleIds);
+      const vm: VehicleMap = {};
+      ((vd ?? []) as any[]).forEach(v => { vm[v.id] = v.plate_number; });
+      setVehicleMap(vm);
+    }
+
+    // Two-pass: profile names (acknowledged_by, resolved_by)
+    const profIds = [...new Set([
+      ...rows.map(r => r.acknowledged_by),
+      ...rows.map(r => r.resolved_by),
+    ].filter(Boolean))] as string[];
+    if (profIds.length) {
+      const { data: pd } = await supabase.from("profiles").select("user_id,full_name").in("user_id", profIds);
+      const pm: ProfileMap = {};
+      ((pd ?? []) as any[]).forEach(p => { pm[p.user_id] = p.full_name; });
+      setProfileMap(pm);
+    }
+
     setLoading(false);
   };
 
@@ -72,9 +105,18 @@ export default function MyIncidentReports() {
                       <div className="min-w-0">
                         <p className="font-semibold text-sm truncate" style={{ color: "var(--text)" }}>{inc.title}</p>
                         <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                          <span className="text-xs capitalize" style={{ color: "var(--text-muted)" }}>{inc.incident_type.replace("_", " ")}</span>
-                          {inc.vehicles && <span className="text-xs" style={{ color: "var(--text-dim)" }}>{inc.vehicles.plate_number}</span>}
-                          <span className="text-xs font-medium capitalize" style={{ color: PRIORITY_COLOR[inc.priority] }}>{inc.priority}</span>
+                          <span className="text-xs capitalize" style={{ color: "var(--text-muted)" }}>
+                            {inc.incident_type.replace("_", " ")}
+                          </span>
+                          {inc.vehicle_id && vehicleMap[inc.vehicle_id] && (
+                            <span className="text-xs" style={{ color: "var(--text-dim)" }}>
+                              {vehicleMap[inc.vehicle_id]}
+                            </span>
+                          )}
+                          <span className="text-xs font-medium capitalize"
+                            style={{ color: PRIORITY_COLOR[inc.priority] }}>
+                            {inc.priority}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -133,16 +175,22 @@ export default function MyIncidentReports() {
 
                     {inc.acknowledged_at && (
                       <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                        Acknowledged by <strong>{inc.acknowledged_profiles?.full_name ?? "supervisor"}</strong> on {fmtDateTime(inc.acknowledged_at)}
+                        Acknowledged{inc.acknowledged_by && profileMap[inc.acknowledged_by]
+                          ? ` by ${profileMap[inc.acknowledged_by]}`
+                          : " by supervisor"
+                        } on {fmtDateTime(inc.acknowledged_at)}
                       </p>
                     )}
                     {inc.resolved_at && (
                       <p className="text-xs" style={{ color: "var(--green)" }}>
-                        ✓ Resolved by <strong>{inc.resolved_profiles?.full_name ?? "supervisor"}</strong> on {fmtDateTime(inc.resolved_at)}
+                        ✓ Resolved{inc.resolved_by && profileMap[inc.resolved_by]
+                          ? ` by ${profileMap[inc.resolved_by]}`
+                          : " by supervisor"
+                        } on {fmtDateTime(inc.resolved_at)}
                       </p>
                     )}
 
-                    {inc.attachments?.length > 0 && (
+                    {Array.isArray(inc.attachments) && inc.attachments.length > 0 && (
                       <div>
                         <p className="text-xs font-medium mb-2" style={{ color: "var(--text-muted)" }}>Attachments</p>
                         <div className="flex flex-wrap gap-2">
@@ -150,7 +198,7 @@ export default function MyIncidentReports() {
                             <a key={i} href={a.url} target="_blank" rel="noreferrer"
                               className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs"
                               style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--accent)" }}>
-                              {a.type.startsWith("image") ? "🖼" : "📄"} {a.name}
+                              {a.type?.startsWith("image") ? "🖼" : "📄"} {a.name}
                             </a>
                           ))}
                         </div>

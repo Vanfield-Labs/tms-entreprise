@@ -9,10 +9,13 @@ type Incident = {
   status: string; priority: string; created_at: string; updated_at: string;
   supervisor_notes: string | null; acknowledged_at: string | null; resolved_at: string | null;
   attachments: { url: string; name: string; type: string }[];
-  vehicles: { plate_number: string } | null;
-  reporter: { full_name: string } | null;
-  acknowledged_profiles: { full_name: string } | null;
+  vehicle_id: string | null;
+  reported_by: string | null;
+  acknowledged_by: string | null;
 };
+
+type ProfileMap = Record<string, string>; // user_id → full_name
+type VehicleMap = Record<string, string>; // id → plate_number
 
 type Tab = "open" | "acknowledged" | "in_progress" | "resolved";
 
@@ -28,6 +31,8 @@ const TYPE_ICON: Record<string, string> = {
 
 export default function IncidentBoard() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [profileMap, setProfileMap] = useState<ProfileMap>({});
+  const [vehicleMap, setVehicleMap] = useState<VehicleMap>({});
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("open");
   const [acting, setActing] = useState<Record<string, boolean>>({});
@@ -36,14 +41,44 @@ export default function IncidentBoard() {
 
   const load = async () => {
     setLoading(true);
-    const { data } = await supabase.from("incident_reports")
-      .select(`id,incident_type,title,description,status,priority,created_at,updated_at,
-        supervisor_notes,acknowledged_at,resolved_at,attachments,
-        vehicles(plate_number),
-        reporter:reported_by(full_name),
-        acknowledged_profiles:acknowledged_by(full_name)`)
+
+    // No profile joins — split queries to avoid RLS recursion on profiles table
+    const { data, error } = await supabase
+      .from("incident_reports")
+      .select("id,incident_type,title,description,status,priority,created_at,updated_at,supervisor_notes,acknowledged_at,resolved_at,attachments,vehicle_id,reported_by,acknowledged_by")
       .order("created_at", { ascending: false });
-    setIncidents((data as unknown as Incident[]) || []);
+
+    if (error) {
+      console.error("IncidentBoard:", error.message);
+      setLoading(false);
+      return;
+    }
+
+    const rows = (data as Incident[]) || [];
+    setIncidents(rows);
+
+    // Two-pass: collect all user IDs needing names
+    const userIds = [...new Set([
+      ...rows.map(r => r.reported_by),
+      ...rows.map(r => r.acknowledged_by),
+    ].filter(Boolean))] as string[];
+
+    if (userIds.length) {
+      const { data: pd } = await supabase.from("profiles").select("user_id,full_name").in("user_id", userIds);
+      const pm: ProfileMap = {};
+      ((pd ?? []) as any[]).forEach(p => { pm[p.user_id] = p.full_name; });
+      setProfileMap(pm);
+    }
+
+    // Two-pass: vehicle plate numbers
+    const vehicleIds = [...new Set(rows.map(r => r.vehicle_id).filter(Boolean))] as string[];
+    if (vehicleIds.length) {
+      const { data: vd } = await supabase.from("vehicles").select("id,plate_number").in("id", vehicleIds);
+      const vm: VehicleMap = {};
+      ((vd ?? []) as any[]).forEach(v => { vm[v.id] = v.plate_number; });
+      setVehicleMap(vm);
+    }
+
     setLoading(false);
   };
 
@@ -51,13 +86,21 @@ export default function IncidentBoard() {
 
   const act = async (id: string, action: "acknowledge" | "in_progress" | "resolve") => {
     setActing(m => ({ ...m, [id]: true }));
-    const statusMap = { acknowledge: "acknowledged", in_progress: "in_progress", resolve: "resolved" };
+    const statusMap: Record<string, string> = {
+      acknowledge: "acknowledged", in_progress: "in_progress", resolve: "resolved",
+    };
     const { data: { user } } = await supabase.auth.getUser();
-    const update: Record<string, unknown> = { status: statusMap[action], updated_at: new Date().toISOString() };
+    const update: Record<string, unknown> = {
+      status: statusMap[action],
+      updated_at: new Date().toISOString(),
+    };
     if (notes[id]) update.supervisor_notes = notes[id];
     if (action === "acknowledge") { update.acknowledged_by = user?.id; update.acknowledged_at = new Date().toISOString(); }
-    if (action === "resolve") { update.resolved_by = user?.id; update.resolved_at = new Date().toISOString(); }
-    await supabase.from("incident_reports").update(update).eq("id", id);
+    if (action === "resolve")    { update.resolved_by = user?.id;    update.resolved_at    = new Date().toISOString(); }
+
+    const { error } = await supabase.from("incident_reports").update(update).eq("id", id);
+    if (error) console.error("IncidentBoard act:", error.message);
+
     await load();
     setActing(m => ({ ...m, [id]: false }));
     setExpanded(null);
@@ -66,10 +109,10 @@ export default function IncidentBoard() {
   const visible = incidents.filter(i => i.status === tab);
 
   const tabs: { value: Tab; label: string }[] = [
-    { value: "open", label: "Open" },
+    { value: "open",         label: "Open"        },
     { value: "acknowledged", label: "Acknowledged" },
-    { value: "in_progress", label: "In Progress" },
-    { value: "resolved", label: "Resolved" },
+    { value: "in_progress",  label: "In Progress"  },
+    { value: "resolved",     label: "Resolved"     },
   ];
 
   if (loading) return <PageSpinner />;
@@ -80,13 +123,17 @@ export default function IncidentBoard() {
         <h1 className="page-title">Incident Reports</h1>
       </div>
 
-      <TabBar tabs={tabs} active={tab} onChange={setTab}
+      <TabBar
+        tabs={tabs}
+        active={tab}
+        onChange={setTab}
         counts={{
-          open: incidents.filter(i => i.status === "open").length,
+          open:         incidents.filter(i => i.status === "open").length,
           acknowledged: incidents.filter(i => i.status === "acknowledged").length,
-          in_progress: incidents.filter(i => i.status === "in_progress").length,
-          resolved: incidents.filter(i => i.status === "resolved").length,
-        }} />
+          in_progress:  incidents.filter(i => i.status === "in_progress").length,
+          resolved:     incidents.filter(i => i.status === "resolved").length,
+        }}
+      />
 
       {visible.length === 0 ? (
         <EmptyState title={`No ${STATUS_LABEL[tab].toLowerCase()} incidents`} />
@@ -103,13 +150,24 @@ export default function IncidentBoard() {
                       <div className="min-w-0">
                         <p className="font-semibold text-sm truncate" style={{ color: "var(--text)" }}>{inc.title}</p>
                         <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                          <span className="text-xs" style={{ color: "var(--text-muted)" }}>{inc.reporter?.full_name ?? "—"}</span>
-                          {inc.vehicles && <span className="text-xs" style={{ color: "var(--text-dim)" }}>· {inc.vehicles.plate_number}</span>}
-                          <span className="text-xs font-medium capitalize" style={{ color: PRIORITY_COLOR[inc.priority] }}>
+                          {inc.reported_by && profileMap[inc.reported_by] && (
+                            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                              {profileMap[inc.reported_by]}
+                            </span>
+                          )}
+                          {inc.vehicle_id && vehicleMap[inc.vehicle_id] && (
+                            <span className="text-xs" style={{ color: "var(--text-dim)" }}>
+                              · {vehicleMap[inc.vehicle_id]}
+                            </span>
+                          )}
+                          <span className="text-xs font-medium capitalize"
+                            style={{ color: PRIORITY_COLOR[inc.priority] }}>
                             {inc.priority === "critical" ? "🔴" : inc.priority === "high" ? "🟠" : ""} {inc.priority}
                           </span>
                         </div>
-                        <p className="text-xs mt-0.5" style={{ color: "var(--text-dim)" }}>{fmtDateTime(inc.created_at)}</p>
+                        <p className="text-xs mt-0.5" style={{ color: "var(--text-dim)" }}>
+                          {fmtDateTime(inc.created_at)}
+                        </p>
                       </div>
                     </div>
                     <Badge status={inc.status} label={STATUS_LABEL[inc.status] ?? inc.status} />
@@ -129,7 +187,7 @@ export default function IncidentBoard() {
                       </div>
                     )}
 
-                    {inc.attachments?.length > 0 && (
+                    {Array.isArray(inc.attachments) && inc.attachments.length > 0 && (
                       <div className="flex flex-wrap gap-2">
                         {inc.attachments.map((a, i) => (
                           <a key={i} href={a.url} target="_blank" rel="noreferrer"
@@ -142,24 +200,30 @@ export default function IncidentBoard() {
                     )}
 
                     <Field label="Supervisor Notes">
-                      <Textarea rows={2} placeholder="Add notes or update…"
+                      <Textarea
+                        rows={2}
+                        placeholder="Add notes or update…"
                         value={notes[inc.id] ?? ""}
-                        onChange={e => setNotes(m => ({ ...m, [inc.id]: e.target.value }))} />
+                        onChange={e => setNotes(m => ({ ...m, [inc.id]: e.target.value }))}
+                      />
                     </Field>
 
                     <div className="flex flex-wrap gap-2">
                       {inc.status === "open" && (
-                        <Btn size="sm" variant="primary" loading={acting[inc.id]} onClick={() => act(inc.id, "acknowledge")}>
+                        <Btn size="sm" variant="primary" loading={acting[inc.id]}
+                          onClick={() => act(inc.id, "acknowledge")}>
                           Acknowledge
                         </Btn>
                       )}
                       {inc.status === "acknowledged" && (
-                        <Btn size="sm" variant="amber" loading={acting[inc.id]} onClick={() => act(inc.id, "in_progress")}>
+                        <Btn size="sm" variant="amber" loading={acting[inc.id]}
+                          onClick={() => act(inc.id, "in_progress")}>
                           Mark In Progress
                         </Btn>
                       )}
                       {(inc.status === "acknowledged" || inc.status === "in_progress") && (
-                        <Btn size="sm" variant="success" loading={acting[inc.id]} onClick={() => act(inc.id, "resolve")}>
+                        <Btn size="sm" variant="success" loading={acting[inc.id]}
+                          onClick={() => act(inc.id, "resolve")}>
                           Mark Resolved
                         </Btn>
                       )}
