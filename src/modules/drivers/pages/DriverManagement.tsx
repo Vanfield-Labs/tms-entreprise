@@ -175,8 +175,8 @@ function CtxMenu({ items }: { items: CtxItem[] }) {
           }}
         >
           {items.map((item, i) => {
-            const fg      = item.cls==="danger" ? "var(--red)" : item.cls==="warning" ? "var(--amber)" : item.cls==="success" ? "var(--green)" : "var(--text)";
-            const hoverBg = item.cls==="danger" ? "rgba(220,38,38,0.09)" : item.cls==="warning" ? "rgba(217,119,6,0.09)" : item.cls==="success" ? "rgba(22,163,74,0.09)" : "var(--surface-2)";
+            const fg      = item.cls==="danger"  ? "var(--red)"   : item.cls==="warning" ? "var(--amber)" : item.cls==="success" ? "var(--green)" : "var(--text)";
+            const hoverBg = item.cls==="danger"  ? "rgba(220,38,38,0.09)" : item.cls==="warning" ? "rgba(217,119,6,0.09)" : item.cls==="success" ? "rgba(22,163,74,0.09)" : "var(--surface-2)";
             return (
               <button
                 key={i}
@@ -208,8 +208,8 @@ function ConfirmDialog({
   open, title, message, confirmLabel = "Confirm", variant = "danger",
   onConfirm, onCancel,
 }: {
-  open:boolean; title:string; message:string; confirmLabel?:string;
-  variant?:"danger"|"warning"; onConfirm:()=>void; onCancel:()=>void;
+  open: boolean; title: string; message: string; confirmLabel?: string;
+  variant?: "danger" | "warning"; onConfirm: () => void; onCancel: () => void;
 }) {
   if (!open) return null;
   return (
@@ -227,7 +227,7 @@ function ConfirmDialog({
         <p style={{ fontSize:13, color:"var(--text-muted)", marginBottom:20, lineHeight:1.5 }}>{message}</p>
         <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
           <Btn variant="ghost" onClick={onCancel}>Cancel</Btn>
-          <Btn variant={variant==="danger" ? "danger" : "amber"} onClick={onConfirm}>{confirmLabel}</Btn>
+          <Btn variant={variant === "danger" ? "danger" : "amber"} onClick={onConfirm}>{confirmLabel}</Btn>
         </div>
       </div>
     </div>
@@ -236,39 +236,39 @@ function ConfirmDialog({
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function DriverManagement() {
-  const [drivers,     setDrivers]    = useState<Driver[]>([]);
-  const [teams,       setTeams]      = useState<Team[]>([]);
-  const [routes,      setRoutes]     = useState<Route[]>([]);
-  const [loading,     setLoading]    = useState(true);
-  const [showForm,    setShowForm]   = useState(false);
-  const [editingId,   setEditingId]  = useState<string | null>(null);
-  const [form,        setForm]       = useState<FormData>(EMPTY);
-  const [saving,      setSaving]     = useState(false);
-  const [error,       setError]      = useState<string | null>(null);
-  const [q,           setQ]          = useState("");
-  const [tab,         setTab]        = useState("all");
-  // delete
-  const [deleteId,    setDeleteId]   = useState<string | null>(null);
-  const [deleteName,  setDeleteName] = useState("");
-  // deactivate/activate
-  const [togglingId,  setTogglingId] = useState<string | null>(null);
-  // reset password
-  const [resetId,     setResetId]    = useState<string | null>(null);
-  const [resetName,   setResetName]  = useState("");
-  const [newPwd,      setNewPwd]     = useState("");
-  const [resetSaving, setResetSaving]= useState(false);
-  const [resetError,  setResetError] = useState("");
+  const [drivers,      setDrivers]    = useState<Driver[]>([]);
+  const [teams,        setTeams]      = useState<Team[]>([]);
+  const [routes,       setRoutes]     = useState<Route[]>([]);
+  const [loading,      setLoading]    = useState(true);
+  const [showForm,     setShowForm]   = useState(false);
+  const [editingId,    setEditingId]  = useState<string | null>(null);
+  const [form,         setForm]       = useState<FormData>(EMPTY);
+  const [saving,       setSaving]     = useState(false);
+  const [error,        setError]      = useState<string | null>(null);
+  const [q,            setQ]          = useState("");
+  const [tab,          setTab]        = useState("all");
+  const [deleteId,     setDeleteId]   = useState<string | null>(null);
+  const [deleteName,   setDeleteName] = useState("");
+  const [togglingId,   setTogglingId] = useState<string | null>(null);
+  const [resetId,      setResetId]    = useState<string | null>(null);
+  const [resetName,    setResetName]  = useState("");
+  const [newPwd,       setNewPwd]     = useState("");
+  const [resetSaving,  setResetSaving]= useState(false);
+  const [resetError,   setResetError] = useState("");
 
-  // ── Load ─────────────────────────────────────────────────────────────────────
-  // Each secondary query (teams, routes, memberships) is run independently
-  // and fails gracefully — if a table doesn't exist yet, drivers still load.
+  // ── Load ──────────────────────────────────────────────────────────────────────
+  // Routes are stored in drivers.route_id (not evening_route_id).
+  // team_id and team_role are also direct columns on drivers.
   const load = async () => {
     setLoading(true);
 
-    // 1. Core drivers query — only columns that definitely exist
     const { data: driverData, error: driverErr } = await supabase
       .from("drivers")
-      .select("id,user_id,license_number,license_expiry,employment_status,created_at")
+      .select(
+        "id,user_id,full_name,license_number,license_class,license_expiry," +
+        "employment_status,employment_date,phone,notes," +
+        "team_id,team_role,route_id"
+      )
       .order("license_number");
 
     if (driverErr) {
@@ -279,96 +279,53 @@ export default function DriverManagement() {
 
     const rows = (driverData as any[]) || [];
 
-    // 2. Try fetching optional new columns separately so a missing column
-    //    doesn't kill the whole load
-    let extMap: Record<string, { license_class:string|null; employment_date:string|null; phone:string|null; notes:string|null; evening_route_id:string|null }> = {};
-    {
-      const { data: ext } = await supabase
-        .from("drivers")
-        .select("id,license_class,employment_date,phone,notes,evening_route_id")
-        .order("license_number");
-      for (const r of (ext as any[]) || []) {
-        extMap[r.id] = {
-          license_class:    r.license_class    ?? null,
-          employment_date:  r.employment_date  ?? null,
-          phone:            r.phone            ?? null,
-          notes:            r.notes            ?? null,
-          evening_route_id: r.evening_route_id ?? null,
-        };
-      }
-    }
+    // Teams
+    const { data: td } = await supabase.from("driver_teams").select("id,name").order("name");
+    const teamsArr: Team[] = (td as Team[]) || [];
+    setTeams(teamsArr);
 
-    // 3. Optional: team memberships
-    let members: any[] = [];
-    {
-      const { data: md } = await supabase
-        .from("driver_team_members")
-        .select("driver_id,team_id,team_role,driver_teams(name)");
-      members = (md as any[]) || [];
-    }
+    // Routes
+    const { data: rd } = await supabase.from("evening_routes").select("id,name,route_type").order("name");
+    const routesArr: Route[] = (rd as Route[]) || [];
+    setRoutes(routesArr);
 
-    // 4. Optional: teams list
-    let teamsArr: any[] = [];
-    {
-      const { data: td } = await supabase.from("driver_teams").select("id,name").order("name");
-      teamsArr = (td as any[]) || [];
-    }
-    setTeams(teamsArr as Team[]);
+    const teamNameMap:  Record<string, string> = Object.fromEntries(teamsArr.map(t => [t.id, t.name]));
+    const routeNameMap: Record<string, string> = Object.fromEntries(routesArr.map(r => [r.id, r.name]));
 
-    // 5. Optional: routes list
-    let routesArr: any[] = [];
-    {
-      const { data: rd } = await supabase.from("evening_routes").select("id,name,route_type").order("name");
-      routesArr = (rd as any[]) || [];
-    }
-    setRoutes(routesArr as Route[]);
+    // Fall back to profiles table for drivers where full_name is null on the row
+    const missingNameIds = rows
+      .filter((d: any) => !d.full_name && d.user_id)
+      .map((d: any) => d.user_id);
 
-    // driver_id → team info
-    const teamMap: Record<string, { team_id:string; team_name:string; team_role:string }> = {};
-    for (const m of members) {
-      teamMap[m.driver_id] = {
-        team_id:   m.team_id,
-        team_name: (m.driver_teams as any)?.name ?? "—",
-        team_role: m.team_role ?? "member",
-      };
-    }
-
-    // route_id → name
-    const routeNameMap: Record<string, string> = Object.fromEntries(routesArr.map((r:any) => [r.id, r.name]));
-
-    // user_id → full_name
-    const userIds = rows.map((d:any) => d.user_id).filter(Boolean);
-    let nameMap: Record<string, string> = {};
-    if (userIds.length > 0) {
+    let profileNameMap: Record<string, string> = {};
+    if (missingNameIds.length > 0) {
       const { data: pd } = await supabase
-        .from("profiles").select("user_id,full_name").in("user_id", userIds);
-      nameMap = Object.fromEntries(((pd as any[]) || []).map(p => [p.user_id, p.full_name]));
+        .from("profiles")
+        .select("user_id,full_name")
+        .in("user_id", missingNameIds);
+      profileNameMap = Object.fromEntries(
+        ((pd as any[]) || []).map(p => [p.user_id, p.full_name])
+      );
     }
 
-    setDrivers(rows.map((d:any): Driver => {
-      // Merge optional columns from extMap (may be empty if columns don't exist yet)
-      const ext = extMap[d.id] ?? {
-        license_class: null, employment_date: null,
-        phone: null, notes: null, evening_route_id: null,
-      };
-      return {
-        id:                d.id,
-        user_id:           d.user_id,
-        license_number:    d.license_number,
-        license_class:     ext.license_class    ?? null,
-        license_expiry:    d.license_expiry      ?? null,
-        employment_status: d.employment_status   ?? "active",
-        employment_date:   ext.employment_date   ?? null,
-        phone:             ext.phone             ?? null,
-        notes:             ext.notes             ?? null,
-        full_name:         d.user_id ? (nameMap[d.user_id] ?? null) : null,
-        team_id:           teamMap[d.id]?.team_id   ?? null,
-        team_name:         teamMap[d.id]?.team_name ?? null,
-        team_role:         teamMap[d.id]?.team_role ?? null,
-        route_id:          ext.evening_route_id  ?? null,
-        assigned_route:    ext.evening_route_id  ? (routeNameMap[ext.evening_route_id] ?? null) : null,
-      };
-    }));
+    setDrivers(rows.map((d: any): Driver => ({
+      id:                d.id,
+      user_id:           d.user_id           ?? null,
+      full_name:         d.full_name         ?? (d.user_id ? (profileNameMap[d.user_id] ?? null) : null),
+      license_number:    d.license_number,
+      license_class:     d.license_class     ?? null,
+      license_expiry:    d.license_expiry    ?? null,
+      employment_status: d.employment_status ?? "active",
+      employment_date:   d.employment_date   ?? null,
+      phone:             d.phone             ?? null,
+      notes:             d.notes             ?? null,
+      team_id:           d.team_id           ?? null,
+      team_name:         d.team_id           ? (teamNameMap[d.team_id] ?? null) : null,
+      team_role:         d.team_role         ?? null,
+      // route_id is the authoritative column for assigned evening route
+      route_id:          d.route_id          ?? null,
+      assigned_route:    d.route_id          ? (routeNameMap[d.route_id] ?? null) : null,
+    })));
 
     setLoading(false);
   };
@@ -378,7 +335,9 @@ export default function DriverManagement() {
   // ── Form helpers ──────────────────────────────────────────────────────────────
   const f = (k: keyof FormData, v: string) => setForm(p => ({ ...p, [k]: v }));
 
-  const openAdd = () => { setForm(EMPTY); setEditingId(null); setError(null); setShowForm(true); };
+  const openAdd = () => {
+    setForm(EMPTY); setEditingId(null); setError(null); setShowForm(true);
+  };
 
   const openEdit = (d: Driver) => {
     setForm({
@@ -397,6 +356,7 @@ export default function DriverManagement() {
     setEditingId(d.id); setError(null); setShowForm(true);
   };
 
+  // ── Save ──────────────────────────────────────────────────────────────────────
   const save = async () => {
     if (!form.license_number.trim()) { setError("Licence number is required."); return; }
     setSaving(true); setError(null);
@@ -409,35 +369,28 @@ export default function DriverManagement() {
         employment_status: form.employment_status,
         employment_date:   form.employment_date || null,
         phone:             form.phone.trim()    || null,
-        evening_route_id:  form.route_id        || null,
+        team_id:           form.team_id         || null,
+        team_role:         form.team_id ? (form.team_role || "member") : null,
+        // Write to route_id — the authoritative column used by v_today_deployment
+        route_id:          form.route_id        || null,
         notes:             form.notes.trim()    || null,
       };
 
-      let driverId = editingId;
       if (editingId) {
         const { error: e } = await supabase.from("drivers").update(payload).eq("id", editingId);
         if (e) throw e;
       } else {
-        const { data, error: e } = await supabase.from("drivers").insert(payload).select("id").single();
+        const { error: e } = await supabase.from("drivers").insert(payload);
         if (e) throw e;
-        driverId = (data as any).id;
       }
 
-      // Sync team membership
-      if (driverId) {
-        await supabase.from("driver_team_members").delete().eq("driver_id", driverId);
-        if (form.team_id) {
-          await supabase.from("driver_team_members").insert({
-            driver_id: driverId,
-            team_id:   form.team_id,
-            team_role: form.team_role,
-          });
-        }
-      }
-
-      setShowForm(false); await load();
-    } catch (e: any) { setError(e.message ?? "Save failed."); }
-    finally { setSaving(false); }
+      setShowForm(false);
+      await load();
+    } catch (e: any) {
+      setError(e.message ?? "Save failed.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   // ── Toggle active / inactive ──────────────────────────────────────────────────
@@ -452,22 +405,19 @@ export default function DriverManagement() {
   // ── Delete ────────────────────────────────────────────────────────────────────
   const handleDelete = async () => {
     if (!deleteId) return;
-    await supabase.from("driver_team_members").delete().eq("driver_id", deleteId);
     await supabase.from("drivers").delete().eq("id", deleteId);
-    setDeleteId(null); await load();
+    setDeleteId(null);
+    await load();
   };
 
   // ── Reset Password ────────────────────────────────────────────────────────────
-  // Must go through the reset-password Edge Function (service-role key required).
-  // supabase.auth.admin is NOT available in browser clients — only service-role.
   const handleResetPassword = async () => {
     if (!resetId || !newPwd.trim()) { setResetError("New password is required."); return; }
-    if (newPwd.trim().length < 8) { setResetError("Password must be at least 8 characters."); return; }
+    if (newPwd.trim().length < 8)   { setResetError("Password must be at least 8 characters."); return; }
     setResetSaving(true); setResetError("");
     try {
       const driver = drivers.find(d => d.id === resetId);
       if (!driver?.user_id) throw new Error("This driver has no linked user account.");
-      // Explicitly attach the session token — required for Edge Function auth
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Not authenticated.");
       const res = await supabase.functions.invoke("reset-password", {
@@ -477,8 +427,11 @@ export default function DriverManagement() {
       if (res.error) throw new Error(res.error.message);
       if (res.data?.error) throw new Error(res.data.error);
       setResetId(null); setNewPwd("");
-    } catch (e: any) { setResetError(e.message ?? "Failed to reset password."); }
-    finally { setResetSaving(false); }
+    } catch (e: any) {
+      setResetError(e.message ?? "Failed to reset password.");
+    } finally {
+      setResetSaving(false);
+    }
   };
 
   // ── Derived ───────────────────────────────────────────────────────────────────
@@ -486,15 +439,19 @@ export default function DriverManagement() {
   const expiringSoon = drivers.filter(d => { const n = daysLeft(d.license_expiry); return n !== null && n >= 0 && n <= 30; });
 
   const tabs = EMP_STATUSES.map(s => ({
-    value: s, label: s === "all" ? "All" : s.replace(/_/g," ").replace(/^\w/,c=>c.toUpperCase()),
+    value: s,
+    label: s === "all" ? "All" : s.replace(/_/g, " ").replace(/^\w/, c => c.toUpperCase()),
   }));
   const counts: Record<string, number> = Object.fromEntries(
-    EMP_STATUSES.map(s => [s, s==="all" ? drivers.length : drivers.filter(d => d.employment_status===s).length])
+    EMP_STATUSES.map(s => [
+      s,
+      s === "all" ? drivers.length : drivers.filter(d => d.employment_status === s).length,
+    ])
   );
   const filtered = drivers.filter(d => {
-    const matchQ = !q || [d.full_name??"", d.license_number, d.phone??"", d.team_name??""]
+    const matchQ = !q || [d.full_name ?? "", d.license_number, d.phone ?? "", d.team_name ?? ""]
       .join(" ").toLowerCase().includes(q.toLowerCase());
-    return matchQ && (tab==="all" || d.employment_status===tab);
+    return matchQ && (tab === "all" || d.employment_status === tab);
   });
 
   if (loading) return <PageSpinner />;
@@ -519,7 +476,6 @@ export default function DriverManagement() {
       <TabBar tabs={tabs} active={tab} onChange={setTab} counts={counts} />
       <SearchInput value={q} onChange={setQ} placeholder="Search name, licence, phone, team…" />
 
-      {/* ── Empty ── */}
       {filtered.length === 0 ? (
         <EmptyState title="No drivers found" subtitle="Try adjusting search or filters" />
       ) : (
@@ -529,17 +485,18 @@ export default function DriverManagement() {
           ═══════════════════════════════ */}
           <div className="sm:hidden space-y-3">
             {filtered.map(d => {
-              const days    = daysLeft(d.license_expiry);
+              const days     = daysLeft(d.license_expiry);
               const isActive = d.employment_status === "active";
               return (
                 <Card key={d.id}>
                   <div className="p-4">
-                    {/* Name + badge + ctx menu */}
                     <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:8, marginBottom:10 }}>
                       <div style={{ minWidth:0, flex:1 }}>
                         <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
                           <span style={{ fontWeight:600, fontSize:14, color:"var(--text)" }}>
-                            {d.full_name ?? <span style={{ color:"var(--text-dim)", fontStyle:"italic", fontWeight:400 }}>No account linked</span>}
+                            {d.full_name ?? (
+                              <span style={{ color:"var(--text-dim)", fontStyle:"italic", fontWeight:400 }}>No account linked</span>
+                            )}
                           </span>
                           <Badge status={d.employment_status} />
                         </div>
@@ -547,13 +504,12 @@ export default function DriverManagement() {
                           {d.license_number}
                         </p>
                       </div>
-                      {/* All actions in context menu on mobile */}
                       <CtxMenu items={[
-                        { label:"Edit",        icon:"✏️",  onClick: () => openEdit(d) },
+                        { label:"Edit", icon:"✏️", onClick: () => openEdit(d) },
                         {
-                          label:  isActive ? "Deactivate" : "Activate",
-                          icon:   isActive ? "🔒"         : "✅",
-                          cls:    isActive ? "warning"    : "success",
+                          label:   isActive ? "Deactivate" : "Activate",
+                          icon:    isActive ? "🔒" : "✅",
+                          cls:     isActive ? "warning" : "success",
                           onClick: () => toggleStatus(d),
                         },
                         {
@@ -572,7 +528,6 @@ export default function DriverManagement() {
                       ]} />
                     </div>
 
-                    {/* Detail rows */}
                     <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
                       {d.phone && (
                         <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:"var(--text-muted)" }}>
@@ -635,12 +590,18 @@ export default function DriverManagement() {
                       <tr key={d.id}>
                         <td>
                           <div style={{ fontWeight:600, whiteSpace:"nowrap" }}>
-                            {d.full_name ?? <span style={{ color:"var(--text-dim)", fontStyle:"italic", fontSize:12 }}>No account</span>}
+                            {d.full_name ?? (
+                              <span style={{ color:"var(--text-dim)", fontStyle:"italic", fontSize:12 }}>No account</span>
+                            )}
                           </div>
                         </td>
                         <td style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:12 }}>{d.license_number}</td>
-                        <td style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:12, color:"var(--text-muted)" }}>{d.license_class ?? "—"}</td>
-                        <td style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:12, color:"var(--text-muted)" }}>{d.phone ?? "—"}</td>
+                        <td style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:12, color:"var(--text-muted)" }}>
+                          {d.license_class ?? "—"}
+                        </td>
+                        <td style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:12, color:"var(--text-muted)" }}>
+                          {d.phone ?? "—"}
+                        </td>
                         <td style={{ fontSize:12, color:"var(--text-muted)", whiteSpace:"nowrap" }}>
                           {d.employment_date ? fmtDate(d.employment_date) : "—"}
                         </td>
@@ -669,26 +630,29 @@ export default function DriverManagement() {
                         </td>
                         <td><Badge status={d.employment_status} /></td>
                         <td>
-                          <div style={{ display:"flex", gap:6, whiteSpace:"nowrap" }}>
-                            <Btn variant="ghost"  size="sm" onClick={() => openEdit(d)}>Edit</Btn>
-                            <Btn
-                              variant={isActive ? "amber" : "success"}
-                              size="sm"
-                              loading={togglingId === d.id}
-                              onClick={() => toggleStatus(d)}
-                            >{isActive ? "Deactivate" : "Activate"}</Btn>
-                            <Btn
-                              variant="ghost" size="sm"
-                              onClick={() => {
-                                if (!d.user_id) { alert("Driver has no linked user account."); return; }
-                                setResetId(d.id); setResetName(d.full_name ?? d.license_number);
-                                setNewPwd(""); setResetError("");
-                              }}
-                            >Reset Pwd</Btn>
-                            <Btn
-                              variant="danger" size="sm"
-                              onClick={() => { setDeleteId(d.id); setDeleteName(d.full_name ?? d.license_number); }}
-                            >Delete</Btn>
+                          <div style={{ display:"flex", justifyContent:"center" }}>
+                            <CtxMenu items={[
+                              { label:"Edit", icon:"✏️", onClick: () => openEdit(d) },
+                              {
+                                label:   isActive ? "Deactivate" : "Activate",
+                                icon:    isActive ? "🔒" : "✅",
+                                cls:     isActive ? "warning" : "success",
+                                onClick: () => toggleStatus(d),
+                              },
+                              {
+                                label:"Reset Password", icon:"🔑",
+                                onClick: () => {
+                                  if (!d.user_id) { alert("Driver has no linked user account."); return; }
+                                  setResetId(d.id);
+                                  setResetName(d.full_name ?? d.license_number);
+                                  setNewPwd(""); setResetError("");
+                                },
+                              },
+                              {
+                                label:"Delete", icon:"🗑️", cls:"danger",
+                                onClick: () => { setDeleteId(d.id); setDeleteName(d.full_name ?? d.license_number); },
+                              },
+                            ]} />
                           </div>
                         </td>
                       </tr>
@@ -738,7 +702,13 @@ export default function DriverManagement() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Team">
-              <Select value={form.team_id} onChange={e => f("team_id", e.target.value)}>
+              <Select
+                value={form.team_id}
+                onChange={e => {
+                  f("team_id", e.target.value);
+                  if (!e.target.value) f("team_role", "member");
+                }}
+              >
                 <option value="">— Unassigned —</option>
                 {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </Select>
@@ -752,7 +722,9 @@ export default function DriverManagement() {
           <Field label="Assigned Evening Route">
             <Select value={form.route_id} onChange={e => f("route_id", e.target.value)}>
               <option value="">— None —</option>
-              {routes.map(r => <option key={r.id} value={r.id}>[{r.route_type?.toUpperCase()}] {r.name}</option>)}
+              {routes.map(r => (
+                <option key={r.id} value={r.id}>[{r.route_type?.toUpperCase()}] {r.name}</option>
+              ))}
             </Select>
           </Field>
           <Field label="Linked User Account ID (optional)">
@@ -801,7 +773,7 @@ export default function DriverManagement() {
       <ConfirmDialog
         open={!!deleteId}
         title="Delete Driver"
-        message={`Remove ${deleteName}? Their team membership and driver record will be permanently deleted. This cannot be undone.`}
+        message={`Remove ${deleteName}? Their driver record will be permanently deleted. This cannot be undone.`}
         confirmLabel="Delete"
         variant="danger"
         onConfirm={handleDelete}
