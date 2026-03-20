@@ -1,385 +1,322 @@
 // src/modules/shifts/pages/ScheduleManager.tsx
-// CHANGE LOG: Added "Swap Unit" button + modal for morning shift cells.
-// All existing logic preserved exactly. New additions marked with ── NEW ──
+// ADDITIONS vs previous version:
+//  1. SwapUnitModal shows drivers on the same team on that shift date
+//  2. Period toggle: single day vs date range
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
-// ── Types ─────────────────────────────────────────────────────
 type CalRow = {
-  driver_id: string;
-  driver_name: string;
-  license_number: string;
-  team_id: string | null;
-  team_name: string | null;
-  shift_date: string;
-  shift_code: "morning" | "evening" | "off";
-  cell_label: string;
-  department_name: string | null;
-  block_start_date: string | null;
-  evening_route_name: string | null;
-  evening_route_id: string | null;
-  is_override: boolean;
+  driver_id: string; driver_name: string; license_number: string;
+  team_id: string | null; team_name: string | null;
+  shift_date: string; shift_code: "morning" | "evening" | "off";
+  cell_label: string; department_name: string | null;
+  block_start_date: string | null; evening_route_name: string | null;
+  evening_route_id: string | null; is_override: boolean;
 };
+type Driver = { id: string; name: string; license: string; team_id: string | null; team_name: string | null };
+type EveningRoute = { id: string; name: string };
+type GenerateResult = { shifts_created?: number; teams_processed?: number; plan_name?: string; department_assignments?: { assignments_created?: number } };
+type OverrideModal = { driver_id: string; driver_name: string; shift_date: string; current: "morning"|"evening"|"off" } | null;
+type RouteModal = { driver_id: string; driver_name: string; shift_date: string; current_route_id: string | null; current_route_name: string | null } | null;
+type SwapUnitModal = { driver_id: string; driver_name: string; shift_date: string; current_unit: string | null; team_id: string | null } | null;
 
-type Driver = {
-  id: string;
-  name: string;
-  license: string;
-  team_id: string | null;
-  team_name: string | null;
+const SHIFT_CODES = ["morning","evening","off"] as const;
+const SHIFT_STYLE: Record<"morning"|"evening"|"off", { bg:string;text:string;border:string;icon:string;label:string }> = {
+  morning: { bg:"var(--amber-dim)",  text:"var(--amber)",   border:"var(--amber)",   icon:"🌅", label:"Morning" },
+  evening: { bg:"var(--accent-dim)", text:"var(--accent)",  border:"var(--accent)",  icon:"🌙", label:"Evening" },
+  off:     { bg:"var(--surface-2)",  text:"var(--text-muted)", border:"var(--border)", icon:"💤", label:"Off" },
 };
-
-type EveningRoute = { id: string; name: string; };
-
-type GenerateResult = {
-  shifts_created?: number;
-  teams_processed?: number;
-  plan_name?: string;
-  department_assignments?: { assignments_created?: number; };
+const DEPLOYMENT_COLORS: Record<string,{bg:string;text:string}> = {
+  "Joy News":     { bg:"var(--accent-dim)", text:"var(--accent)" },
+  "Adom News":    { bg:"var(--amber-dim)",  text:"var(--amber)"  },
+  "Joy Business": { bg:"var(--green-dim)",  text:"var(--green)"  },
+  Production:     { bg:"var(--surface-2)",  text:"var(--purple)" },
 };
+const DEPLOYMENT_SORT_ORDER: Record<string,number> = { "Joy News":1,"Adom News":2,"Joy Business":3,Production:4 };
+const DEPLOYMENT_UNIT_OPTIONS = ["Joy News","Adom News","Joy Business","Production"];
 
-type OverrideModal = {
-  driver_id: string;
-  driver_name: string;
-  shift_date: string;
-  current: "morning" | "evening" | "off";
-} | null;
-
-type RouteModal = {
-  driver_id: string;
-  driver_name: string;
-  shift_date: string;
-  current_route_id: string | null;
-  current_route_name: string | null;
-} | null;
-
-// ── NEW: Swap Unit Modal type ──────────────────────────────────
-type SwapUnitModal = {
-  driver_id: string;
-  driver_name: string;
-  shift_date: string;
-  current_unit: string | null;
-  team_id: string | null;
-} | null;
-
-// ── Design tokens ─────────────────────────────────────────────
-const SHIFT_CODES = ["morning", "evening", "off"] as const;
-
-const SHIFT_STYLE: Record<
-  "morning" | "evening" | "off",
-  { bg: string; text: string; border: string; icon: string; label: string }
-> = {
-  morning: { bg: "var(--amber-dim)", text: "var(--amber)", border: "var(--amber)", icon: "🌅", label: "Morning" },
-  evening: { bg: "var(--accent-dim)", text: "var(--accent)", border: "var(--accent)", icon: "🌙", label: "Evening" },
-  off:     { bg: "var(--surface-2)", text: "var(--text-muted)", border: "var(--border)", icon: "💤", label: "Off" },
-};
-
-const DEPLOYMENT_COLORS: Record<string, { bg: string; text: string }> = {
-  "Joy News":     { bg: "var(--accent-dim)", text: "var(--accent)" },
-  "Adom News":    { bg: "var(--amber-dim)",  text: "var(--amber)"  },
-  "Joy Business": { bg: "var(--green-dim)",  text: "var(--green)"  },
-  Production:     { bg: "var(--surface-2)",  text: "var(--purple)" },
-};
-
-const DEPLOYMENT_SORT_ORDER: Record<string, number> = {
-  "Joy News": 1, "Adom News": 2, "Joy Business": 3, Production: 4,
-};
-
-function fmt(d: Date): string { return d.toISOString().slice(0, 10); }
+function fmt(d: Date): string { return d.toISOString().slice(0,10); }
 function getWeekDates(anchor: Date): Date[] {
   const monday = new Date(anchor);
-  monday.setDate(anchor.getDate() - ((anchor.getDay() + 6) % 7));
-  return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(monday); d.setDate(monday.getDate() + i); return d;
-  });
+  monday.setDate(anchor.getDate() - ((anchor.getDay()+6)%7));
+  return Array.from({length:7},(_,i)=>{ const d=new Date(monday); d.setDate(monday.getDate()+i); return d; });
 }
-function getDeploymentColors(name: string | null) {
+function getDeploymentColors(name: string|null) {
   if (!name) return null;
-  return DEPLOYMENT_COLORS[name] ?? { bg: "var(--surface-2)", text: "var(--text)" };
+  return DEPLOYMENT_COLORS[name] ?? { bg:"var(--surface-2)", text:"var(--text)" };
 }
 
-// ── ShiftCell ─────────────────────────────────────────────────
 function ShiftCell({ row, onClick }: { row: CalRow; onClick: () => void }) {
   const shift = SHIFT_STYLE[row.shift_code];
-  const deploymentColor = row.shift_code === "morning" ? getDeploymentColors(row.department_name) : null;
-  const displayLabel = row.shift_code === "off" ? "Off"
-    : row.shift_code === "morning" ? (row.department_name ?? "Morning")
-    : (row.evening_route_name ?? "Evening");
+  const dc = row.shift_code==="morning" ? getDeploymentColors(row.department_name) : null;
+  const label = row.shift_code==="off" ? "Off" : row.shift_code==="morning" ? (row.department_name??"Morning") : (row.evening_route_name??"Evening");
   return (
     <button onClick={onClick}
-      title={`${shift.label}${displayLabel ? ` · ${displayLabel}` : ""}${row.is_override ? " (override)" : ""}`}
-      style={{
-        width: "100%", minHeight: 50, padding: "4px 3px",
-        background: deploymentColor ? deploymentColor.bg : shift.bg,
-        border: `1px solid ${deploymentColor ? deploymentColor.text : shift.border}`,
-        borderRadius: 8, cursor: "pointer", position: "relative",
-        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
-      }}>
-      <span style={{ fontSize: 15, lineHeight: 1 }}>{shift.icon}</span>
-      <span style={{
-        fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em",
-        lineHeight: 1.2, color: deploymentColor ? deploymentColor.text : shift.text,
-        textAlign: "center", maxWidth: "100%", wordBreak: "break-word",
-      }}>{displayLabel}</span>
-      {row.is_override && (
-        <span style={{
-          position: "absolute", top: 3, right: 3, width: 7, height: 7,
-          borderRadius: "50%", background: "var(--amber)", border: "2px solid var(--surface)",
-        }} />
-      )}
+      title={`${shift.label}${label?` · ${label}`:""}${row.is_override?" (override)":""}`}
+      style={{ width:"100%", minHeight:50, padding:"4px 3px", background:dc?dc.bg:shift.bg,
+        border:`1px solid ${dc?dc.text:shift.border}`, borderRadius:8, cursor:"pointer",
+        position:"relative", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2 }}>
+      <span style={{ fontSize:15, lineHeight:1 }}>{shift.icon}</span>
+      <span style={{ fontSize:9, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.04em",
+        lineHeight:1.2, color:dc?dc.text:shift.text, textAlign:"center", maxWidth:"100%", wordBreak:"break-word" }}>{label}</span>
+      {row.is_override && <span style={{ position:"absolute", top:3, right:3, width:7, height:7, borderRadius:"50%", background:"var(--amber)", border:"2px solid var(--surface)" }} />}
     </button>
   );
 }
-
 function EmptyCell({ onClick }: { onClick: () => void }) {
-  return (
-    <button onClick={onClick} style={{
-      width: "100%", minHeight: 50, background: "none",
-      border: "1px dashed var(--border)", borderRadius: 8,
-      cursor: "pointer", color: "var(--text-dim)", fontSize: 11,
-    }}>—</button>
-  );
+  return <button onClick={onClick} style={{ width:"100%", minHeight:50, background:"none", border:"1px dashed var(--border)", borderRadius:8, cursor:"pointer", color:"var(--text-dim)", fontSize:11 }}>—</button>;
 }
 
-// ── Main ──────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────────────────
 export default function ScheduleManager() {
-  const [rows, setRows]         = useState<CalRow[]>([]);
-  const [routes, setRoutes]     = useState<EveningRoute[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [anchor, setAnchor]     = useState(new Date());
-  const [teamFilter, setTeamFilter] = useState("all");
-  const [teams, setTeams]       = useState<{ id: string; name: string }[]>([]);
-  const [error, setError]       = useState<string | null>(null);
+  const [rows,setRows]         = useState<CalRow[]>([]);
+  const [routes,setRoutes]     = useState<EveningRoute[]>([]);
+  const [loading,setLoading]   = useState(true);
+  const [anchor,setAnchor]     = useState(new Date());
+  const [teamFilter,setTeamFilter] = useState("all");
+  const [teams,setTeams]       = useState<{id:string;name:string}[]>([]);
+  const [error,setError]       = useState<string|null>(null);
 
-  // Generate modal
-  const [showGen, setShowGen]   = useState(false);
-  const [genStart, setGenStart] = useState(fmt(new Date()));
-  const [genEnd, setGenEnd]     = useState(() => { const d = new Date(); d.setDate(d.getDate() + 90); return fmt(d); });
-  const [genName, setGenName]   = useState("Auto Schedule");
-  const [genSaving, setGenSaving] = useState(false);
-  const [genResult, setGenResult] = useState<string | null>(null);
+  const [showGen,setShowGen]   = useState(false);
+  const [genStart,setGenStart] = useState(fmt(new Date()));
+  const [genEnd,setGenEnd]     = useState(()=>{const d=new Date();d.setDate(d.getDate()+90);return fmt(d);});
+  const [genName,setGenName]   = useState("Auto Schedule");
+  const [genSaving,setGenSaving]=useState(false);
+  const [genResult,setGenResult]=useState<string|null>(null);
 
-  // Shift override modal
-  const [overrideModal, setOverrideModal] = useState<OverrideModal>(null);
-  const [overrideCode, setOverrideCode]   = useState<"morning" | "evening" | "off">("morning");
-  const [overrideReason, setOverrideReason] = useState("");
-  const [overrideSaving, setOverrideSaving] = useState(false);
+  const [overrideModal,setOverrideModal]=useState<OverrideModal>(null);
+  const [overrideCode,setOverrideCode] =useState<"morning"|"evening"|"off">("morning");
+  const [overrideReason,setOverrideReason]=useState("");
+  const [overrideSaving,setOverrideSaving]=useState(false);
 
-  // Route override modal
-  const [routeModal, setRouteModal]       = useState<RouteModal>(null);
-  const [selectedRouteId, setSelectedRouteId] = useState("");
-  const [routeReason, setRouteReason]     = useState("");
-  const [routeSaving, setRouteSaving]     = useState(false);
+  const [routeModal,setRouteModal]=useState<RouteModal>(null);
+  const [selectedRouteId,setSelectedRouteId]=useState("");
+  const [routeReason,setRouteReason]=useState("");
+  const [routeSaving,setRouteSaving]=useState(false);
 
-  // ── NEW: Swap Unit modal state ──────────────────────────────
-  const [swapUnitModal, setSwapUnitModal]     = useState<SwapUnitModal>(null);
-  const [swapUnitName, setSwapUnitName]       = useState("");
-  const [swapUnitReason, setSwapUnitReason]   = useState("");
-  const [swapUnitSaving, setSwapUnitSaving]   = useState(false);
+  // ── Swap Unit state ──────────────────────────────────────────────────────────
+  const [swapUnitModal,setSwapUnitModal]   = useState<SwapUnitModal>(null);
+  const [swapUnitName,setSwapUnitName]     = useState("");
+  const [swapUnitReason,setSwapUnitReason] = useState("");
+  const [swapUnitSaving,setSwapUnitSaving] = useState(false);
+  const [swapPeriod,setSwapPeriod]         = useState<"day"|"range">("day");
+  const [swapEndDate,setSwapEndDate]       = useState("");
+  // Drivers in the same team on the same date for the selected unit
+  const [teamDriversOnShift,setTeamDriversOnShift] = useState<{id:string;name:string;license:string;current_unit:string|null}[]>([]);
+  const [selectedSwapPartner,setSelectedSwapPartner] = useState<string>("");
 
-  // Known deployment unit names (from the view's department_name values)
-  const DEPLOYMENT_UNIT_OPTIONS = ["Joy News", "Adom News", "Joy Business", "Production"];
-
-  const weekDates = useMemo(() => getWeekDates(anchor), [anchor]);
+  const weekDates = useMemo(()=>getWeekDates(anchor),[anchor]);
   const weekStart = fmt(weekDates[0]);
   const weekEnd   = fmt(weekDates[6]);
   const today     = fmt(new Date());
 
-  const load = useCallback(async () => {
+  const load = useCallback(async()=>{
     setLoading(true); setError(null);
-    const { data, error: err } = await supabase.from("v_schedule_calendar")
-      .select("*").gte("shift_date", weekStart).lte("shift_date", weekEnd)
-      .order("team_name", { ascending: true }).order("shift_date", { ascending: true });
-    if (err) { setError(err.message); setLoading(false); return; }
-    const calRows: CalRow[] = Array.isArray(data) ? (data as unknown as CalRow[]) : [];
+    const {data,error:err} = await supabase.from("v_schedule_calendar").select("*")
+      .gte("shift_date",weekStart).lte("shift_date",weekEnd)
+      .order("team_name",{ascending:true}).order("shift_date",{ascending:true});
+    if(err){setError(err.message);setLoading(false);return;}
+    const calRows:CalRow[] = Array.isArray(data)?(data as unknown as CalRow[]):[];
     setRows(calRows);
-    const tMap = new Map<string, string>();
-    calRows.forEach(r => { if (r.team_id && r.team_name) tMap.set(r.team_id, r.team_name); });
-    setTeams([...tMap.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)));
+    const tMap=new Map<string,string>();
+    calRows.forEach(r=>{if(r.team_id&&r.team_name)tMap.set(r.team_id,r.team_name);});
+    setTeams([...tMap.entries()].map(([id,name])=>({id,name})).sort((a,b)=>a.name.localeCompare(b.name)));
     setLoading(false);
-  }, [weekStart, weekEnd]);
+  },[weekStart,weekEnd]);
 
-  const loadRoutes = useCallback(async () => {
-    const { data } = await supabase.from("evening_routes").select("id,name").order("name");
-    if (data) setRoutes(data as EveningRoute[]);
-  }, []);
+  const loadRoutes = useCallback(async()=>{
+    const {data}=await supabase.from("evening_routes").select("id,name").order("name");
+    if(data) setRoutes(data as EveningRoute[]);
+  },[]);
 
-  useEffect(() => { void load(); void loadRoutes(); }, [load, loadRoutes]);
+  useEffect(()=>{void load();void loadRoutes();},[load,loadRoutes]);
 
-  const grid = useMemo(() => {
-    const g: Record<string, Record<string, CalRow>> = {};
-    rows.forEach(r => { if (!g[r.driver_id]) g[r.driver_id] = {}; g[r.driver_id][r.shift_date] = r; });
+  const grid = useMemo(()=>{
+    const g:Record<string,Record<string,CalRow>>={};
+    rows.forEach(r=>{if(!g[r.driver_id])g[r.driver_id]={};g[r.driver_id][r.shift_date]=r;});
     return g;
-  }, [rows]);
+  },[rows]);
 
-  const allDrivers = useMemo<Driver[]>(() => {
-    const map = new Map<string, Driver>();
-    rows.forEach(r => {
-      if (!map.has(r.driver_id)) {
-        map.set(r.driver_id, { id: r.driver_id, name: r.driver_name, license: r.license_number, team_id: r.team_id, team_name: r.team_name });
-      }
-    });
-    return [...map.values()].filter(d => teamFilter === "all" || d.team_id === teamFilter);
-  }, [rows, teamFilter]);
+  const allDrivers = useMemo<Driver[]>(()=>{
+    const map=new Map<string,Driver>();
+    rows.forEach(r=>{if(!map.has(r.driver_id))map.set(r.driver_id,{id:r.driver_id,name:r.driver_name,license:r.license_number,team_id:r.team_id,team_name:r.team_name});});
+    return [...map.values()].filter(d=>teamFilter==="all"||d.team_id===teamFilter);
+  },[rows,teamFilter]);
 
   function getDriverWeekPriority(driverId: string): { bucket: number; label: string } {
-    for (const d of weekDates) {
-      const row = grid[driverId]?.[fmt(d)];
-      if (!row) continue;
-      if (row.shift_code === "morning") return { bucket: DEPLOYMENT_SORT_ORDER[row.department_name ?? ""] ?? 20, label: row.department_name ?? "Morning" };
-      if (row.shift_code === "evening") return { bucket: 50, label: row.evening_route_name ?? "Evening" };
+  for (const d of weekDates) {
+    const row = grid[driverId]?.[fmt(d)];
+    if (!row) continue;
+
+    if (row.shift_code === "morning") {
+      return {
+        bucket: DEPLOYMENT_SORT_ORDER[row.department_name ?? ""] ?? 20,
+        label: row.department_name ?? "Morning",
+      };
     }
-    return { bucket: 99, label: "Off" };
+
+    if (row.shift_code === "evening") {
+      return {
+        bucket: 50,
+        label: row.evening_route_name ?? "Evening",
+      };
+    }
   }
 
-  const { byTeam, noTeam } = useMemo(() => {
-    const grouped = new Map<string, { name: string; drivers: Driver[] }>();
-    const unassigned: Driver[] = [];
-    allDrivers.forEach(d => {
-      if (d.team_id && d.team_name) {
-        if (!grouped.has(d.team_id)) grouped.set(d.team_id, { name: d.team_name, drivers: [] });
+  return { bucket: 99, label: "Off" };
+}
+
+  const {byTeam,noTeam}=useMemo(()=>{
+    const grouped=new Map<string,{name:string;drivers:Driver[]}>();
+    const unassigned:Driver[]=[];
+    allDrivers.forEach(d=>{
+      if(d.team_id&&d.team_name){
+        if(!grouped.has(d.team_id))grouped.set(d.team_id,{name:d.team_name,drivers:[]});
         grouped.get(d.team_id)!.drivers.push(d);
-      } else { unassigned.push(d); }
+      } else unassigned.push(d);
     });
-    for (const [, group] of grouped.entries()) {
-      group.drivers.sort((a, b) => {
-        const pa = getDriverWeekPriority(a.id), pb = getDriverWeekPriority(b.id);
-        if (pa.bucket !== pb.bucket) return pa.bucket - pb.bucket;
-        if (pa.label !== pb.label) return pa.label.localeCompare(pb.label);
+    for(const[,group] of grouped.entries()){
+      group.drivers.sort((a,b)=>{
+        const pa=getDriverWeekPriority(a.id),pb=getDriverWeekPriority(b.id);
+        if(pa.bucket!==pb.bucket) return pa.bucket-pb.bucket;
+        if(pa.label!==pb.label) return pa.label.localeCompare(pb.label);
         return a.name.localeCompare(b.name);
       });
     }
-    unassigned.sort((a, b) => a.name.localeCompare(b.name));
-    return { byTeam: grouped, noTeam: unassigned };
-  }, [allDrivers, weekDates, grid]);
+    unassigned.sort((a,b)=>a.name.localeCompare(b.name));
+    return {byTeam:grouped,noTeam:unassigned};
+  },[allDrivers,weekDates,grid]);
 
-  // ── Actions ───────────────────────────────────────────────────
-  const generate = async () => {
-    setGenSaving(true); setError(null); setGenResult(null);
-    const { data, error: err } = await supabase.rpc("rpc_generate_schedule", { p_start_date: genStart, p_end_date: genEnd, p_plan_name: genName });
+  const generate=async()=>{
+    setGenSaving(true);setError(null);setGenResult(null);
+    const {data,error:err}=await supabase.rpc("rpc_generate_schedule",{p_start_date:genStart,p_end_date:genEnd,p_plan_name:genName});
     setGenSaving(false);
-    if (err) { setError(err.message); return; }
-    const d = (data ?? {}) as GenerateResult;
-    setGenResult(`✓ ${d.shifts_created ?? 0} shifts across ${d.teams_processed ?? 0} teams · ${d.department_assignments?.assignments_created ?? 0} deployments`);
+    if(err){setError(err.message);return;}
+    const d=(data??{}) as GenerateResult;
+    setGenResult(`✓ ${d.shifts_created??0} shifts across ${d.teams_processed??0} teams · ${d.department_assignments?.assignments_created??0} deployments`);
     await load();
   };
 
-  const applyOverride = async () => {
-    if (!overrideModal) return;
-    setOverrideSaving(true); setError(null);
-    const { error: err } = await supabase.rpc("override_shift", {
-      p_driver_id: overrideModal.driver_id, p_shift_date: overrideModal.shift_date,
-      p_new_shift_code: overrideCode, p_reason: overrideReason || null,
-    });
+  const applyOverride=async()=>{
+    if(!overrideModal) return;
+    setOverrideSaving(true);setError(null);
+    const {error:err}=await supabase.rpc("override_shift",{p_driver_id:overrideModal.driver_id,p_shift_date:overrideModal.shift_date,p_new_shift_code:overrideCode,p_reason:overrideReason||null});
     setOverrideSaving(false);
-    if (err) { setError(err.message); return; }
-    setOverrideModal(null); setOverrideReason(""); await load();
+    if(err){setError(err.message);return;}
+    setOverrideModal(null);setOverrideReason("");await load();
   };
 
-  const applyRouteSwap = async () => {
-    if (!routeModal || !selectedRouteId) return;
-    setRouteSaving(true); setError(null);
-    const { error: err } = await supabase.rpc("override_evening_route", {
-      p_driver_id: routeModal.driver_id, p_shift_date: routeModal.shift_date,
-      p_route_id: selectedRouteId, p_reason: routeReason || null,
-    });
+  const applyRouteSwap=async()=>{
+    if(!routeModal||!selectedRouteId) return;
+    setRouteSaving(true);setError(null);
+    const {error:err}=await supabase.rpc("override_evening_route",{p_driver_id:routeModal.driver_id,p_shift_date:routeModal.shift_date,p_route_id:selectedRouteId,p_reason:routeReason||null});
     setRouteSaving(false);
-    if (err) { setError(err.message); return; }
-    setRouteModal(null); setSelectedRouteId(""); setRouteReason(""); await load();
+    if(err){setError(err.message);return;}
+    setRouteModal(null);setSelectedRouteId("");setRouteReason("");await load();
   };
 
-  // ── NEW: Apply morning unit swap ──────────────────────────────
-  const applyUnitSwap = async () => {
-    if (!swapUnitModal || !swapUnitName) return;
-    setSwapUnitSaving(true); setError(null);
-    const { error: err } = await supabase.rpc("swap_morning_deployment", {
-      p_driver_id: swapUnitModal.driver_id,
-      p_shift_date: swapUnitModal.shift_date,
-      p_new_unit_name: swapUnitName,
-      p_reason: swapUnitReason || null,
-    });
-    setSwapUnitSaving(false);
-    if (err) { setError(err.message); return; }
-    setSwapUnitModal(null); setSwapUnitName(""); setSwapUnitReason(""); await load();
+  // ── Apply unit swap (with optional partner swap) ───────────────────────────
+  const applyUnitSwap=async()=>{
+    if(!swapUnitModal||!swapUnitName) return;
+    setSwapUnitSaving(true);setError(null);
+    try {
+      const endDate = swapPeriod==="range" && swapEndDate ? swapEndDate : swapUnitModal.shift_date;
+      // Apply to primary driver
+      const {error:e1}=await supabase.rpc("swap_morning_deployment",{
+        p_driver_id: swapUnitModal.driver_id,
+        p_shift_date: swapUnitModal.shift_date,
+        p_new_unit_name: swapUnitName,
+        p_reason: swapUnitReason||null,
+        p_end_date: endDate,
+      });
+      if(e1) throw e1;
+      // If partner selected, swap the partner to the primary driver's old unit
+      if(selectedSwapPartner && swapUnitModal.current_unit) {
+        const partnerRow = rows.find(r=>r.driver_id===selectedSwapPartner&&r.shift_date===swapUnitModal.shift_date);
+        const partnerOldUnit = partnerRow?.department_name ?? swapUnitModal.current_unit;
+        const {error:e2}=await supabase.rpc("swap_morning_deployment",{
+          p_driver_id: selectedSwapPartner,
+          p_shift_date: swapUnitModal.shift_date,
+          p_new_unit_name: swapUnitModal.current_unit,
+          p_reason: `Swapped with ${swapUnitModal.driver_name}${swapUnitReason?": "+swapUnitReason:""}`,
+          p_end_date: endDate,
+        });
+        if(e2) throw e2;
+      }
+      setSwapUnitModal(null);setSwapUnitName("");setSwapUnitReason("");setSelectedSwapPartner("");setSwapEndDate("");setSwapPeriod("day");
+      await load();
+    } catch(e:any){
+      setError(e.message??"Swap failed");
+    } finally { setSwapUnitSaving(false); }
   };
 
-  const openOverride = (driver: Driver, date: Date, current: "morning" | "evening" | "off") => {
-    setOverrideModal({ driver_id: driver.id, driver_name: driver.name, shift_date: fmt(date), current });
-    setOverrideCode(current); setOverrideReason("");
+  const openOverride=(driver:Driver,date:Date,current:"morning"|"evening"|"off")=>{
+    setOverrideModal({driver_id:driver.id,driver_name:driver.name,shift_date:fmt(date),current});
+    setOverrideCode(current);setOverrideReason("");
   };
-  const openRouteSwap = (row: CalRow) => {
-    setRouteModal({ driver_id: row.driver_id, driver_name: row.driver_name, shift_date: row.shift_date, current_route_id: row.evening_route_id, current_route_name: row.evening_route_name });
-    setSelectedRouteId(row.evening_route_id ?? ""); setRouteReason("");
+  const openRouteSwap=(row:CalRow)=>{
+    setRouteModal({driver_id:row.driver_id,driver_name:row.driver_name,shift_date:row.shift_date,current_route_id:row.evening_route_id,current_route_name:row.evening_route_name});
+    setSelectedRouteId(row.evening_route_id??"");setRouteReason("");
+  };
+  const openSwapUnit=(row:CalRow)=>{
+    setSwapUnitModal({driver_id:row.driver_id,driver_name:row.driver_name,shift_date:row.shift_date,current_unit:row.department_name,team_id:row.team_id});
+    setSwapUnitName(row.department_name??"");setSwapUnitReason("");setSelectedSwapPartner("");setSwapEndDate(row.shift_date);setSwapPeriod("day");
+    // Load team members on the same date/shift
+    if(row.team_id){
+      const teammates = rows.filter(r=>r.team_id===row.team_id && r.shift_date===row.shift_date && r.shift_code==="morning" && r.driver_id!==row.driver_id);
+      setTeamDriversOnShift(teammates.map(r=>({id:r.driver_id,name:r.driver_name,license:r.license_number,current_unit:r.department_name})));
+    } else { setTeamDriversOnShift([]); }
   };
 
-  // ── NEW: open swap unit modal ─────────────────────────────────
-  const openSwapUnit = (row: CalRow) => {
-    setSwapUnitModal({ driver_id: row.driver_id, driver_name: row.driver_name, shift_date: row.shift_date, current_unit: row.department_name, team_id: row.team_id });
-    setSwapUnitName(row.department_name ?? ""); setSwapUnitReason("");
-  };
-
-  const dayLabel = (d: Date) => d.toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short" });
-
-  function dominantShift(drivers: Driver[]): "morning" | "evening" | "off" {
-    const counts: Record<"morning" | "evening" | "off", number> = { morning: 0, evening: 0, off: 0 };
-    drivers.forEach(d => weekDates.forEach(wd => { const code = grid[d.id]?.[fmt(wd)]?.shift_code; if (code) counts[code]++; }));
-    return (Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "off") as "morning" | "evening" | "off";
+  const dayLabel=(d:Date)=>d.toLocaleDateString("en-GB",{weekday:"short",day:"2-digit",month:"short"});
+  function dominantShift(drivers:Driver[]):"morning"|"evening"|"off"{
+    const counts:Record<"morning"|"evening"|"off",number>={morning:0,evening:0,off:0};
+    drivers.forEach(d=>weekDates.forEach(wd=>{const code=grid[d.id]?.[fmt(wd)]?.shift_code;if(code)counts[code]++;}));
+    return (Object.entries(counts).sort((a,b)=>b[1]-a[1])[0]?.[0]??"off") as "morning"|"evening"|"off";
   }
+  const deploymentLegend=useMemo(()=>{
+    const names=new Set<string>();
+    rows.forEach(r=>{if(r.shift_code==="morning"&&r.department_name)names.add(r.department_name);});
+    return [...names].sort((a,b)=>{const oa=DEPLOYMENT_SORT_ORDER[a]??99,ob=DEPLOYMENT_SORT_ORDER[b]??99;return oa!==ob?oa-ob:a.localeCompare(b);});
+  },[rows]);
 
-  const deploymentLegend = useMemo(() => {
-    const names = new Set<string>();
-    rows.forEach(r => { if (r.shift_code === "morning" && r.department_name) names.add(r.department_name); });
-    return [...names].sort((a, b) => { const oa = DEPLOYMENT_SORT_ORDER[a] ?? 99, ob = DEPLOYMENT_SORT_ORDER[b] ?? 99; return oa !== ob ? oa - ob : a.localeCompare(b); });
-  }, [rows]);
-
-  // ── Shared table renderer ─────────────────────────────────────
-  const renderDriverTable = (drivers: Driver[]) => (
+  const renderDriverTable=(drivers:Driver[])=>(
     <>
-      {/* Desktop */}
-      <div className="desk-only" style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <div className="desk-only" style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
           <thead>
             <tr>
-              <th style={{ padding: "10px 16px", textAlign: "left", fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", width: 220, background: "var(--surface-2)", borderBottom: "1px solid var(--border)" }}>Driver</th>
-              {weekDates.map(d => (
-                <th key={fmt(d)} style={{
-                  padding: "10px 4px", textAlign: "center", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", minWidth: 92,
-                  color: fmt(d) === today ? "var(--accent)" : "var(--text-muted)",
-                  background: fmt(d) === today ? "color-mix(in srgb, var(--accent-dim) 50%, var(--surface-2))" : "var(--surface-2)",
-                  borderBottom: "1px solid var(--border)",
-                }}>{dayLabel(d)}</th>
+              <th style={{padding:"10px 16px",textAlign:"left",fontSize:11,fontWeight:700,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:"0.05em",width:220,background:"var(--surface-2)",borderBottom:"1px solid var(--border)"}}>Driver</th>
+              {weekDates.map(d=>(
+                <th key={fmt(d)} style={{padding:"10px 4px",textAlign:"center",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.04em",minWidth:92,color:fmt(d)===today?"var(--accent)":"var(--text-muted)",background:fmt(d)===today?"color-mix(in srgb, var(--accent-dim) 50%, var(--surface-2))":"var(--surface-2)",borderBottom:"1px solid var(--border)"}}>
+                  {dayLabel(d)}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {drivers.map((driver, idx) => (
-              <tr key={driver.id} style={{ background: idx % 2 === 0 ? "var(--surface)" : "var(--surface-2)", borderBottom: "1px solid var(--border)" }}>
-                <td style={{ padding: "10px 16px" }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text)" }}>{driver.name}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginTop: 2 }}>{driver.license}</div>
+            {drivers.map((driver,idx)=>(
+              <tr key={driver.id} style={{background:idx%2===0?"var(--surface)":"var(--surface-2)",borderBottom:"1px solid var(--border)"}}>
+                <td style={{padding:"10px 16px"}}>
+                  <div style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{driver.name}</div>
+                  <div style={{fontSize:11,color:"var(--text-muted)",fontFamily:"var(--font-mono)",marginTop:2}}>{driver.license}</div>
                 </td>
-                {weekDates.map(d => {
-                  const row = grid[driver.id]?.[fmt(d)];
+                {weekDates.map(d=>{
+                  const row=grid[driver.id]?.[fmt(d)];
                   return (
-                    <td key={fmt(d)} style={{ padding: "5px 4px", background: fmt(d) === today ? "color-mix(in srgb, var(--accent-dim) 12%, transparent)" : undefined, verticalAlign: "top" }}>
-                      {row ? (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          <ShiftCell row={row} onClick={() => openOverride(driver, d, row.shift_code)} />
-                          {/* Evening: Swap Route */}
-                          {row.shift_code === "evening" && (
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 10, padding: "2px 6px" }} onClick={() => openRouteSwap(row)}>
-                              Swap Route
-                            </button>
+                    <td key={fmt(d)} style={{padding:"5px 4px",background:fmt(d)===today?"color-mix(in srgb, var(--accent-dim) 12%, transparent)":undefined,verticalAlign:"top"}}>
+                      {row?(
+                        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                          <ShiftCell row={row} onClick={()=>openOverride(driver,d,row.shift_code)} />
+                          {row.shift_code==="evening"&&(
+                            <button className="btn btn-ghost btn-sm" style={{fontSize:10,padding:"2px 6px"}} onClick={()=>openRouteSwap(row)}>Swap Route</button>
                           )}
-                          {/* ── NEW: Morning: Swap Unit ── */}
-                          {row.shift_code === "morning" && (
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 10, padding: "2px 6px" }} onClick={() => openSwapUnit(row)}>
-                              Swap Unit
-                            </button>
+                          {row.shift_code==="morning"&&(
+                            <button className="btn btn-ghost btn-sm" style={{fontSize:10,padding:"2px 6px"}} onClick={()=>openSwapUnit(row)}>Swap Unit</button>
                           )}
                         </div>
-                      ) : (
-                        <EmptyCell onClick={() => openOverride(driver, d, "off")} />
+                      ):(
+                        <EmptyCell onClick={()=>openOverride(driver,d,"off")} />
                       )}
                     </td>
                   );
@@ -389,40 +326,26 @@ export default function ScheduleManager() {
           </tbody>
         </table>
       </div>
-
-      {/* Mobile */}
       <div className="mob-only">
-        {drivers.map(driver => (
-          <div key={driver.id} style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
-            <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
-              {driver.name}
-              <span style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: 8, fontFamily: "var(--font-mono)" }}>{driver.license}</span>
+        {drivers.map(driver=>(
+          <div key={driver.id} style={{padding:"12px 14px",borderBottom:"1px solid var(--border)"}}>
+            <div style={{fontWeight:600,fontSize:13,color:"var(--text)",marginBottom:8}}>
+              {driver.name}<span style={{fontSize:10,color:"var(--text-muted)",marginLeft:8,fontFamily:"var(--font-mono)"}}>{driver.license}</span>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
-              {weekDates.map(d => {
-                const row = grid[driver.id]?.[fmt(d)];
+            <div style={{display:"grid",gridTemplateColumns:"repeat(7, 1fr)",gap:3}}>
+              {weekDates.map(d=>{
+                const row=grid[driver.id]?.[fmt(d)];
                 return (
                   <div key={fmt(d)}>
-                    <div style={{ fontSize: 9, textAlign: "center", marginBottom: 2, fontWeight: 700, color: fmt(d) === today ? "var(--accent)" : "var(--text-dim)" }}>
-                      {d.toLocaleDateString("en-GB", { weekday: "narrow" })}
-                    </div>
-                    {row ? (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                        <ShiftCell row={row} onClick={() => openOverride(driver, d, row.shift_code)} />
-                        {row.shift_code === "evening" && (
-                          <button className="btn btn-ghost btn-sm" style={{ fontSize: 9, padding: "2px 4px" }} onClick={() => openRouteSwap(row)}>
-                            Route
-                          </button>
-                        )}
-                        {/* ── NEW: Morning mobile ── */}
-                        {row.shift_code === "morning" && (
-                          <button className="btn btn-ghost btn-sm" style={{ fontSize: 9, padding: "2px 4px" }} onClick={() => openSwapUnit(row)}>
-                            Unit
-                          </button>
-                        )}
+                    <div style={{fontSize:9,textAlign:"center",marginBottom:2,fontWeight:700,color:fmt(d)===today?"var(--accent)":"var(--text-dim)"}}>{d.toLocaleDateString("en-GB",{weekday:"narrow"})}</div>
+                    {row?(
+                      <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                        <ShiftCell row={row} onClick={()=>openOverride(driver,d,row.shift_code)} />
+                        {row.shift_code==="evening"&&<button className="btn btn-ghost btn-sm" style={{fontSize:9,padding:"2px 4px"}} onClick={()=>openRouteSwap(row)}>Route</button>}
+                        {row.shift_code==="morning"&&<button className="btn btn-ghost btn-sm" style={{fontSize:9,padding:"2px 4px"}} onClick={()=>openSwapUnit(row)}>Unit</button>}
                       </div>
-                    ) : (
-                      <EmptyCell onClick={() => openOverride(driver, d, "off")} />
+                    ):(
+                      <EmptyCell onClick={()=>openOverride(driver,d,"off")} />
                     )}
                   </div>
                 );
@@ -435,88 +358,57 @@ export default function ScheduleManager() {
   );
 
   return (
-    <div style={{ paddingBottom: 48 }}>
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+    <div style={{paddingBottom:48}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12,marginBottom:20}}>
         <div>
           <h1 className="page-title">Shift Schedule</h1>
-          <p style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 3 }}>Team-based 12-day cycle · Morning 4d → Off 2d → Evening 4d → Off 2d</p>
+          <p style={{fontSize:13,color:"var(--text-muted)",marginTop:3}}>Team-based 12-day cycle · Morning 4d → Off 2d → Evening 4d → Off 2d</p>
         </div>
-        <button className="btn btn-primary" onClick={() => { setShowGen(true); setGenResult(null); setError(null); }}>⚡ Generate Schedule</button>
+        <button className="btn btn-primary" onClick={()=>{setShowGen(true);setGenResult(null);setError(null);}}>⚡ Generate Schedule</button>
       </div>
 
-      {error && (
-        <div className="alert alert-error" style={{ marginBottom: 16 }}>
-          <span style={{ flex: 1 }}>{error}</span>
-          <button onClick={() => setError(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontWeight: 700 }}>✕</button>
-        </div>
-      )}
+      {error&&<div className="alert alert-error" style={{marginBottom:16}}><span style={{flex:1}}>{error}</span><button onClick={()=>setError(null)} style={{background:"none",border:"none",cursor:"pointer",color:"inherit",fontWeight:700}}>✕</button></div>}
 
-      {/* Controls */}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
-        <button className="btn btn-ghost btn-sm" onClick={() => setAnchor(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; })}>← Prev</button>
-        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", minWidth: 170, textAlign: "center" }}>
-          {weekDates[0].toLocaleDateString("en-GB", { day: "2-digit", month: "short" })} – {weekDates[6].toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
-        </span>
-        <button className="btn btn-ghost btn-sm" onClick={() => setAnchor(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; })}>Next →</button>
-        <button className="btn btn-ghost btn-sm" onClick={() => setAnchor(new Date())}>Today</button>
-        <div style={{ marginLeft: "auto" }}>
-          <select className="tms-select" style={{ fontSize: 13, padding: "6px 12px" }} value={teamFilter} onChange={e => setTeamFilter(e.target.value)}>
-            <option value="all">All Teams</option>
-            {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-        </div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:16}}>
+        <button className="btn btn-ghost btn-sm" onClick={()=>setAnchor(d=>{const n=new Date(d);n.setDate(n.getDate()-7);return n;})}>← Prev</button>
+        <span style={{fontSize:13,fontWeight:600,color:"var(--text)",minWidth:170,textAlign:"center"}}>{weekDates[0].toLocaleDateString("en-GB",{day:"2-digit",month:"short"})} – {weekDates[6].toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}</span>
+        <button className="btn btn-ghost btn-sm" onClick={()=>setAnchor(d=>{const n=new Date(d);n.setDate(n.getDate()+7);return n;})}>Next →</button>
+        <button className="btn btn-ghost btn-sm" onClick={()=>setAnchor(new Date())}>Today</button>
+        <div style={{marginLeft:"auto"}}><select className="tms-select" style={{fontSize:13,padding:"6px 12px"}} value={teamFilter} onChange={e=>setTeamFilter(e.target.value)}><option value="all">All Teams</option>{teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
       </div>
 
-      {/* Legends */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 20, alignItems: "center" }}>
-        {Object.entries(SHIFT_STYLE).map(([k, v]) => (
-          <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600, background: v.bg, color: v.text, border: `1px solid ${v.border}` }}>
-            {v.icon} {v.label}
-          </span>
-        ))}
-        <span style={{ width: 1, height: 14, background: "var(--border)", margin: "0 2px" }} />
-        {deploymentLegend.map(name => {
-          const c = getDeploymentColors(name)!;
-          return (
-            <span key={name} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600, background: c.bg, color: c.text, border: `1px solid ${c.text}` }}>
-              {name}
-            </span>
-          );
-        })}
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:20,alignItems:"center"}}>
+        {Object.entries(SHIFT_STYLE).map(([k,v])=><span key={k} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:600,background:v.bg,color:v.text,border:`1px solid ${v.border}`}}>{v.icon} {v.label}</span>)}
+        <span style={{width:1,height:14,background:"var(--border)",margin:"0 2px"}}/>
+        {deploymentLegend.map(name=>{const c=getDeploymentColors(name)!;return <span key={name} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:600,background:c.bg,color:c.text,border:`1px solid ${c.text}`}}>{name}</span>;})}
       </div>
 
-      {/* Calendar body */}
-      {loading ? (
-        <div style={{ display: "flex", justifyContent: "center", padding: 56 }}><div className="spinner" /></div>
-      ) : allDrivers.length === 0 ? (
-        <div style={{ textAlign: "center", padding: 56, color: "var(--text-muted)", fontSize: 14, background: "var(--surface)", borderRadius: 16, border: "1px solid var(--border)" }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>📅</div>
-          No schedule data for this week.<br/>
-          <span style={{ color: "var(--text-dim)", fontSize: 13 }}>Click <strong style={{ color: "var(--text)" }}>Generate Schedule</strong> to create one.</span>
+      {loading?(
+        <div style={{display:"flex",justifyContent:"center",padding:56}}><div className="spinner"/></div>
+      ):allDrivers.length===0?(
+        <div style={{textAlign:"center",padding:56,color:"var(--text-muted)",fontSize:14,background:"var(--surface)",borderRadius:16,border:"1px solid var(--border)"}}>
+          <div style={{fontSize:32,marginBottom:12}}>📅</div>No schedule data for this week.<br/><span style={{color:"var(--text-dim)",fontSize:13}}>Click <strong style={{color:"var(--text)"}}>Generate Schedule</strong> to create one.</span>
         </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          {[...byTeam.entries()].map(([teamId, { name: teamName, drivers }]) => {
-            const dom = dominantShift(drivers), ds = SHIFT_STYLE[dom];
+      ):(
+        <div style={{display:"flex",flexDirection:"column",gap:20}}>
+          {[...byTeam.entries()].map(([teamId,{name:teamName,drivers}])=>{
+            const dom=dominantShift(drivers),ds=SHIFT_STYLE[dom];
             return (
-              <div key={teamId} style={{ background: "var(--surface)", borderRadius: 16, border: "1px solid var(--border)", overflow: "hidden" }}>
-                <div style={{ padding: "12px 16px", background: "var(--surface-2)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                  <span style={{ fontWeight: 700, fontSize: 15, color: "var(--text)" }}>👥 {teamName}</span>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 12px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: ds.bg, color: ds.text, border: `1px solid ${ds.border}` }}>
-                    {ds.icon} {ds.label} this week
-                  </span>
-                  <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: "auto" }}>{drivers.length} driver{drivers.length !== 1 ? "s" : ""}</span>
+              <div key={teamId} style={{background:"var(--surface)",borderRadius:16,border:"1px solid var(--border)",overflow:"hidden"}}>
+                <div style={{padding:"12px 16px",background:"var(--surface-2)",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                  <span style={{fontWeight:700,fontSize:15,color:"var(--text)"}}>👥 {teamName}</span>
+                  <span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 12px",borderRadius:20,fontSize:11,fontWeight:700,background:ds.bg,color:ds.text,border:`1px solid ${ds.border}`}}>{ds.icon} {ds.label} this week</span>
+                  <span style={{fontSize:12,color:"var(--text-muted)",marginLeft:"auto"}}>{drivers.length} driver{drivers.length!==1?"s":""}</span>
                 </div>
                 {renderDriverTable(drivers)}
               </div>
             );
           })}
-          {noTeam.length > 0 && (
-            <div style={{ background: "var(--surface)", borderRadius: 16, border: "1px dashed var(--border)", overflow: "hidden" }}>
-              <div style={{ padding: "12px 16px", background: "var(--surface-2)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontWeight: 700, fontSize: 14, color: "var(--text-muted)" }}>⚠️ No Team Assigned</span>
-                <span style={{ fontSize: 12, color: "var(--text-dim)" }}>{noTeam.length} driver{noTeam.length !== 1 ? "s" : ""}</span>
+          {noTeam.length>0&&(
+            <div style={{background:"var(--surface)",borderRadius:16,border:"1px dashed var(--border)",overflow:"hidden"}}>
+              <div style={{padding:"12px 16px",background:"var(--surface-2)",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontWeight:700,fontSize:14,color:"var(--text-muted)"}}>⚠️ No Team Assigned</span>
+                <span style={{fontSize:12,color:"var(--text-dim)"}}>{noTeam.length} driver{noTeam.length!==1?"s":""}</span>
               </div>
               {renderDriverTable(noTeam)}
             </div>
@@ -524,147 +416,162 @@ export default function ScheduleManager() {
         </div>
       )}
 
-      {/* ── Generate Modal ─────────────────────────────────────── */}
-      {showGen && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setShowGen(false)}>
-          <div style={{ background: "var(--surface)", borderRadius: 20, width: "100%", maxWidth: 500, overflow: "hidden" }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 15, color: "var(--text)" }}>Generate Schedule</div>
-                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>Team-based cycle + deployment grouping + route visibility</div>
-              </div>
-              <button onClick={() => setShowGen(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "var(--text-muted)", padding: 0 }}>✕</button>
+      {/* Generate Modal */}
+      {showGen&&(
+        <div style={{position:"fixed",inset:0,zIndex:50,background:"rgba(0,0,0,0.5)",backdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowGen(false)}>
+          <div style={{background:"var(--surface)",borderRadius:20,width:"100%",maxWidth:500,overflow:"hidden"}} onClick={e=>e.stopPropagation()}>
+            <div style={{padding:"16px 20px",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div><div style={{fontWeight:700,fontSize:15,color:"var(--text)"}}>Generate Schedule</div><div style={{fontSize:12,color:"var(--text-muted)",marginTop:3}}>Team-based cycle + deployment grouping + route visibility</div></div>
+              <button onClick={()=>setShowGen(false)} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"var(--text-muted)",padding:0}}>✕</button>
             </div>
-            <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
-              <div><label className="form-label">Plan Name</label><input className="tms-input" value={genName} onChange={e => setGenName(e.target.value)} /></div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div><label className="form-label">Start Date</label><input type="date" className="tms-input" value={genStart} onChange={e => setGenStart(e.target.value)} /></div>
-                <div><label className="form-label">End Date</label><input type="date" className="tms-input" value={genEnd} onChange={e => setGenEnd(e.target.value)} /></div>
+            <div style={{padding:20,display:"flex",flexDirection:"column",gap:14}}>
+              <div><label className="form-label">Plan Name</label><input className="tms-input" value={genName} onChange={e=>setGenName(e.target.value)}/></div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                <div><label className="form-label">Start Date</label><input type="date" className="tms-input" value={genStart} onChange={e=>setGenStart(e.target.value)}/></div>
+                <div><label className="form-label">End Date</label><input type="date" className="tms-input" value={genEnd} onChange={e=>setGenEnd(e.target.value)}/></div>
               </div>
-              {genResult && <div className="alert alert-success"><span>{genResult}</span></div>}
-              {error && <div className="alert alert-error"><span>{error}</span></div>}
+              {genResult&&<div className="alert alert-success"><span>{genResult}</span></div>}
+              {error&&<div className="alert alert-error"><span>{error}</span></div>}
             </div>
-            <div style={{ padding: "12px 20px", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end", gap: 10 }}>
-              <button className="btn btn-ghost" onClick={() => setShowGen(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={generate} disabled={genSaving}>{genSaving ? "Generating…" : "⚡ Generate"}</button>
+            <div style={{padding:"12px 20px",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"flex-end",gap:10}}>
+              <button className="btn btn-ghost" onClick={()=>setShowGen(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={generate} disabled={genSaving}>{genSaving?"Generating…":"⚡ Generate"}</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Shift Override Modal ─────────────────────────────────── */}
-      {overrideModal && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)", display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 16 }} onClick={() => setOverrideModal(null)}>
-          <div style={{ background: "var(--surface)", borderRadius: 20, width: "100%", maxWidth: 420, overflow: "hidden", marginBottom: 8 }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between" }}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 15, color: "var(--text)" }}>Override Shift</div>
-                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>{overrideModal.driver_name} · {overrideModal.shift_date}</div>
-              </div>
-              <button onClick={() => setOverrideModal(null)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "var(--text-muted)" }}>✕</button>
+      {/* Shift Override Modal */}
+      {overrideModal&&(
+        <div style={{position:"fixed",inset:0,zIndex:50,background:"rgba(0,0,0,0.5)",backdropFilter:"blur(4px)",display:"flex",alignItems:"flex-end",justifyContent:"center",padding:16}} onClick={()=>setOverrideModal(null)}>
+          <div style={{background:"var(--surface)",borderRadius:20,width:"100%",maxWidth:420,overflow:"hidden",marginBottom:8}} onClick={e=>e.stopPropagation()}>
+            <div style={{padding:"16px 20px",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between"}}>
+              <div><div style={{fontWeight:700,fontSize:15,color:"var(--text)"}}>Override Shift</div><div style={{fontSize:12,color:"var(--text-muted)",marginTop:3}}>{overrideModal.driver_name} · {overrideModal.shift_date}</div></div>
+              <button onClick={()=>setOverrideModal(null)} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"var(--text-muted)"}}>✕</button>
             </div>
-            <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
-              <div>
-                <label className="form-label">New Shift</label>
-                <div style={{ display: "flex", gap: 8 }}>
-                  {SHIFT_CODES.map(code => {
-                    const s = SHIFT_STYLE[code], active = overrideCode === code;
-                    return (
-                      <button key={code} onClick={() => setOverrideCode(code)} style={{ flex: 1, padding: "12px 8px", borderRadius: 12, cursor: "pointer", border: `2px solid ${active ? s.border : "var(--border)"}`, background: active ? s.bg : "var(--surface-2)", color: active ? s.text : "var(--text-muted)", fontWeight: 700, fontSize: 12, textAlign: "center" }}>
-                        <div style={{ fontSize: 20, marginBottom: 4 }}>{s.icon}</div>{s.label}
-                      </button>
-                    );
-                  })}
+            <div style={{padding:20,display:"flex",flexDirection:"column",gap:14}}>
+              <div><label className="form-label">New Shift</label>
+                <div style={{display:"flex",gap:8}}>
+                  {SHIFT_CODES.map(code=>{const s=SHIFT_STYLE[code],active=overrideCode===code;return <button key={code} onClick={()=>setOverrideCode(code)} style={{flex:1,padding:"12px 8px",borderRadius:12,cursor:"pointer",border:`2px solid ${active?s.border:"var(--border)"}`,background:active?s.bg:"var(--surface-2)",color:active?s.text:"var(--text-muted)",fontWeight:700,fontSize:12,textAlign:"center"}}><div style={{fontSize:20,marginBottom:4}}>{s.icon}</div>{s.label}</button>;})}
                 </div>
               </div>
-              <div><label className="form-label">Reason (optional)</label><input className="tms-input" placeholder="e.g. Medical leave…" value={overrideReason} onChange={e => setOverrideReason(e.target.value)} /></div>
-              {error && <div className="alert alert-error"><span>{error}</span></div>}
+              <div><label className="form-label">Reason (optional)</label><input className="tms-input" placeholder="e.g. Medical leave…" value={overrideReason} onChange={e=>setOverrideReason(e.target.value)}/></div>
             </div>
-            <div style={{ padding: "12px 20px", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end", gap: 10 }}>
-              <button className="btn btn-ghost" onClick={() => setOverrideModal(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={applyOverride} disabled={overrideSaving}>{overrideSaving ? "Saving…" : "Apply Override"}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Route Swap Modal ─────────────────────────────────────── */}
-      {routeModal && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setRouteModal(null)}>
-          <div style={{ background: "var(--surface)", borderRadius: 20, width: "100%", maxWidth: 420, overflow: "hidden" }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)" }}>
-              <div style={{ fontWeight: 700, fontSize: 15, color: "var(--text)" }}>Temporary Route Swap</div>
-              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>{routeModal.driver_name} · {routeModal.shift_date}</div>
-            </div>
-            <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
-              <div>
-                <label className="form-label">Current Route</label>
-                <div style={{ padding: "8px 12px", borderRadius: 10, background: "var(--surface-2)", fontSize: 13, color: "var(--text)" }}>{routeModal.current_route_name ?? "None assigned"}</div>
-              </div>
-              <div>
-                <label className="form-label">New Route</label>
-                <select className="tms-select" value={selectedRouteId} onChange={e => setSelectedRouteId(e.target.value)}>
-                  <option value="">Select route</option>
-                  {routes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                </select>
-              </div>
-              <div><label className="form-label">Reason (optional)</label><input className="tms-input" value={routeReason} onChange={e => setRouteReason(e.target.value)} placeholder="e.g. temporary swap" /></div>
-            </div>
-            <div style={{ padding: "12px 20px", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end", gap: 10 }}>
-              <button className="btn btn-ghost" onClick={() => setRouteModal(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={applyRouteSwap} disabled={routeSaving || !selectedRouteId}>{routeSaving ? "Saving…" : "Apply Route Swap"}</button>
+            <div style={{padding:"12px 20px",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"flex-end",gap:10}}>
+              <button className="btn btn-ghost" onClick={()=>setOverrideModal(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={applyOverride} disabled={overrideSaving}>{overrideSaving?"Saving…":"Apply Override"}</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── NEW: Swap Unit Modal ─────────────────────────────────── */}
-      {swapUnitModal && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setSwapUnitModal(null)}>
-          <div style={{ background: "var(--surface)", borderRadius: 20, width: "100%", maxWidth: 420, overflow: "hidden" }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)" }}>
-              <div style={{ fontWeight: 700, fontSize: 15, color: "var(--text)" }}>Swap Morning Unit</div>
-              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>
-                {swapUnitModal.driver_name} · {swapUnitModal.shift_date}
-              </div>
+      {/* Route Swap Modal */}
+      {routeModal&&(
+        <div style={{position:"fixed",inset:0,zIndex:50,background:"rgba(0,0,0,0.5)",backdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setRouteModal(null)}>
+          <div style={{background:"var(--surface)",borderRadius:20,width:"100%",maxWidth:420,overflow:"hidden"}} onClick={e=>e.stopPropagation()}>
+            <div style={{padding:"16px 20px",borderBottom:"1px solid var(--border)"}}><div style={{fontWeight:700,fontSize:15,color:"var(--text)"}}>Temporary Route Swap</div><div style={{fontSize:12,color:"var(--text-muted)",marginTop:3}}>{routeModal.driver_name} · {routeModal.shift_date}</div></div>
+            <div style={{padding:20,display:"flex",flexDirection:"column",gap:14}}>
+              <div><label className="form-label">Current Route</label><div style={{padding:"8px 12px",borderRadius:10,background:"var(--surface-2)",fontSize:13,color:"var(--text)"}}>{routeModal.current_route_name??"None assigned"}</div></div>
+              <div><label className="form-label">New Route</label><select className="tms-select" value={selectedRouteId} onChange={e=>setSelectedRouteId(e.target.value)}><option value="">Select route</option>{routes.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></div>
+              <div><label className="form-label">Reason (optional)</label><input className="tms-input" value={routeReason} onChange={e=>setRouteReason(e.target.value)} placeholder="e.g. temporary swap"/></div>
             </div>
-            <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{padding:"12px 20px",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"flex-end",gap:10}}>
+              <button className="btn btn-ghost" onClick={()=>setRouteModal(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={applyRouteSwap} disabled={routeSaving||!selectedRouteId}>{routeSaving?"Saving…":"Apply Route Swap"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Swap Unit Modal with team members + period option ── */}
+      {swapUnitModal&&(
+        <div style={{position:"fixed",inset:0,zIndex:50,background:"rgba(0,0,0,0.5)",backdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setSwapUnitModal(null)}>
+          <div style={{background:"var(--surface)",borderRadius:20,width:"100%",maxWidth:460,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+            <div style={{padding:"16px 20px",borderBottom:"1px solid var(--border)",position:"sticky",top:0,background:"var(--surface)"}}>
+              <div style={{fontWeight:700,fontSize:15,color:"var(--text)"}}>Swap Morning Unit</div>
+              <div style={{fontSize:12,color:"var(--text-muted)",marginTop:3}}>{swapUnitModal.driver_name} · {swapUnitModal.shift_date}</div>
+            </div>
+            <div style={{padding:20,display:"flex",flexDirection:"column",gap:16}}>
+
+              {/* Current unit */}
               <div>
-                <label className="form-label">Current Unit / Deployment</label>
-                <div style={{ padding: "8px 12px", borderRadius: 10, background: "var(--surface-2)", fontSize: 13, color: "var(--text)" }}>
-                  {swapUnitModal.current_unit ?? "None assigned"}
-                </div>
+                <label className="form-label">Current Deployment</label>
+                <div style={{padding:"8px 12px",borderRadius:10,background:"var(--surface-2)",fontSize:13,color:"var(--text)"}}>{swapUnitModal.current_unit??"None assigned"}</div>
               </div>
+
+              {/* New unit */}
               <div>
-                <label className="form-label">Assign to Unit</label>
-                <select className="tms-select" value={swapUnitName} onChange={e => setSwapUnitName(e.target.value)}>
+                <label className="form-label">Assign to Unit *</label>
+                <select className="tms-select" value={swapUnitName} onChange={e=>setSwapUnitName(e.target.value)}>
                   <option value="">Select unit…</option>
-                  {DEPLOYMENT_UNIT_OPTIONS.map(u => (
-                    <option key={u} value={u}>{u}</option>
-                  ))}
+                  {DEPLOYMENT_UNIT_OPTIONS.map(u=><option key={u} value={u}>{u}</option>)}
                 </select>
               </div>
+
+              {/* Period toggle */}
               <div>
-                <label className="form-label">Reason (optional)</label>
-                <input className="tms-input" value={swapUnitReason} onChange={e => setSwapUnitReason(e.target.value)} placeholder="e.g. Temporary reassignment for coverage" />
+                <label className="form-label">Duration</label>
+                <div style={{display:"flex",gap:8}}>
+                  {(["day","range"] as const).map(p=>(
+                    <button key={p} onClick={()=>setSwapPeriod(p)} style={{flex:1,padding:"10px",borderRadius:10,cursor:"pointer",border:`2px solid ${swapPeriod===p?"var(--accent)":"var(--border)"}`,background:swapPeriod===p?"var(--accent-dim)":"var(--surface-2)",color:swapPeriod===p?"var(--accent)":"var(--text-muted)",fontWeight:600,fontSize:12}}>
+                      {p==="day"?"This day only":"Date range"}
+                    </button>
+                  ))}
+                </div>
+                {swapPeriod==="range"&&(
+                  <div style={{marginTop:10,display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                    <div><label className="form-label">From</label><input type="date" className="tms-input" value={swapUnitModal.shift_date} readOnly/></div>
+                    <div><label className="form-label">To</label><input type="date" className="tms-input" value={swapEndDate} min={swapUnitModal.shift_date} onChange={e=>setSwapEndDate(e.target.value)}/></div>
+                  </div>
+                )}
               </div>
-              <div className="p-3 rounded-xl text-xs" style={{ background: "var(--amber-dim)", color: "var(--amber)", border: "1px solid rgba(217,119,6,0.3)" }}>
-                ℹ This temporarily overrides the driver's morning deployment for this date only. The calendar will show the new unit assignment.
-              </div>
+
+              {/* Team members on same morning shift — optional swap partner */}
+              {teamDriversOnShift.length>0&&(
+                <div>
+                  <label className="form-label">Swap with a teammate (optional)</label>
+                  <p style={{fontSize:11,color:"var(--text-muted)",marginBottom:8}}>Select a driver from your team on morning shift today to swap units with them.</p>
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    <button onClick={()=>setSelectedSwapPartner("")}
+                      style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,cursor:"pointer",border:`2px solid ${selectedSwapPartner===""?"var(--accent)":"var(--border)"}`,background:selectedSwapPartner===""?"var(--accent-dim)":"var(--surface-2)",textAlign:"left"}}>
+                      <span style={{fontSize:13,fontWeight:500,color:selectedSwapPartner===""?"var(--accent)":"var(--text)"}}>No swap — only reassign {swapUnitModal.driver_name}</span>
+                    </button>
+                    {teamDriversOnShift.map(d=>(
+                      <button key={d.id} onClick={()=>setSelectedSwapPartner(d.id)}
+                        style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"10px 12px",borderRadius:10,cursor:"pointer",border:`2px solid ${selectedSwapPartner===d.id?"var(--accent)":"var(--border)"}`,background:selectedSwapPartner===d.id?"var(--accent-dim)":"var(--surface-2)",textAlign:"left"}}>
+                        <div>
+                          <span style={{fontSize:13,fontWeight:600,color:selectedSwapPartner===d.id?"var(--accent)":"var(--text)"}}>{d.name}</span>
+                          <span style={{fontSize:11,color:"var(--text-muted)",marginLeft:8,fontFamily:"monospace"}}>{d.license}</span>
+                        </div>
+                        <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:selectedSwapPartner===d.id?"var(--accent)":"var(--surface)",color:selectedSwapPartner===d.id?"#fff":"var(--text-muted)",fontWeight:600}}>
+                          {d.current_unit??"No unit"}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  {selectedSwapPartner&&swapUnitName&&(
+                    <div style={{marginTop:8,padding:"8px 12px",borderRadius:10,background:"var(--amber-dim)",border:"1px solid rgba(217,119,6,0.3)",fontSize:12,color:"var(--amber)"}}>
+                      ⇄ {swapUnitModal.driver_name} → <strong>{swapUnitName}</strong> and {teamDriversOnShift.find(d=>d.id===selectedSwapPartner)?.name} → <strong>{swapUnitModal.current_unit??"original unit"}</strong>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Reason */}
+              <div><label className="form-label">Reason (optional)</label><input className="tms-input" value={swapUnitReason} onChange={e=>setSwapUnitReason(e.target.value)} placeholder="e.g. Coverage for Joy News special"/></div>
+
             </div>
-            <div style={{ padding: "12px 20px", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end", gap: 10 }}>
-              <button className="btn btn-ghost" onClick={() => setSwapUnitModal(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={applyUnitSwap} disabled={swapUnitSaving || !swapUnitName}>
-                {swapUnitSaving ? "Saving…" : "Apply Unit Swap"}
-              </button>
+            <div style={{padding:"12px 20px",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"flex-end",gap:10,position:"sticky",bottom:0,background:"var(--surface)"}}>
+              <button className="btn btn-ghost" onClick={()=>setSwapUnitModal(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={applyUnitSwap} disabled={swapUnitSaving||!swapUnitName}>{swapUnitSaving?"Saving…":"Apply Swap"}</button>
             </div>
           </div>
         </div>
       )}
 
       <style>{`
-        @media (max-width: 767px) { .desk-only { display: none !important; } .mob-only { display: block !important; } }
-        @media (min-width: 768px) { .desk-only { display: block !important; } .mob-only { display: none !important; } }
+        @media (max-width:767px){.desk-only{display:none!important;}.mob-only{display:block!important;}}
+        @media (min-width:768px){.desk-only{display:block!important;}.mob-only{display:none!important;}}
       `}</style>
     </div>
   );
