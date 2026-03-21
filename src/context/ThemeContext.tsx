@@ -15,13 +15,21 @@ const ThemeContext = createContext<ThemeContextValue>({
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
-    // 1. Saved preference
+    // 1. Saved manual preference wins
     const saved = localStorage.getItem("tms-theme") as Theme | null;
     if (saved === "light" || saved === "dark") return saved;
-    // 2. System preference
+    // 2. Fall back to OS preference
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   });
 
+  // Track whether the user has manually chosen a theme.
+  // If they haven't, OS changes will override automatically.
+  const [manualOverride, setManualOverride] = useState<boolean>(() => {
+    const saved = localStorage.getItem("tms-theme");
+    return saved === "light" || saved === "dark";
+  });
+
+  // Apply theme class to <html>
   useEffect(() => {
     const root = document.documentElement;
     if (theme === "dark") {
@@ -29,10 +37,35 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     } else {
       root.classList.remove("dark");
     }
-    localStorage.setItem("tms-theme", theme);
-  }, [theme]);
+    // Only persist to localStorage when the user explicitly chose
+    if (manualOverride) {
+      localStorage.setItem("tms-theme", theme);
+    }
+  }, [theme, manualOverride]);
 
-  const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
+  // Listen for OS-level light/dark changes
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+
+    const handleOsChange = (e: MediaQueryListEvent) => {
+      // Only follow OS if the user hasn't manually overridden
+      if (!manualOverride) {
+        setTheme(e.matches ? "dark" : "light");
+      }
+    };
+
+    mq.addEventListener("change", handleOsChange);
+    return () => mq.removeEventListener("change", handleOsChange);
+  }, [manualOverride]);
+
+  const toggleTheme = () => {
+    setManualOverride(true);
+    setTheme(t => {
+      const next: Theme = t === "dark" ? "light" : "dark";
+      localStorage.setItem("tms-theme", next);
+      return next;
+    });
+  };
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>

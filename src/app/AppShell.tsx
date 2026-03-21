@@ -134,6 +134,7 @@ function NotificationBell({ userId, onNavigate }: { userId: string; onNavigate: 
 
   const ENTITY_ICON: Record<string, string> = {
     booking: "📋", fuel_request: "⛽", maintenance: "🔧", incident: "🚨", user: "👤",
+    news_assignment: "📰", camera_deployment: "📷", camera_pickup: "🚗",
   };
 
   return (
@@ -284,6 +285,19 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items.length]);
 
+  // Handle notification-click navigation: tms:navigate event dispatched by NotificationBell
+  useEffect(() => {
+    const onNavigate = (e: Event) => {
+      const label = (e as CustomEvent<{ label: string }>).detail?.label;
+      if (!label) return;
+      const idx = items.findIndex(item => item.label === label);
+      if (idx !== -1) go(idx);
+    };
+    window.addEventListener("tms:navigate", onNavigate);
+    return () => window.removeEventListener("tms:navigate", onNavigate);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
+
   const activeItem = items[activeIndex];
   const activeLabel = activeItem?.label ?? "";
 
@@ -345,8 +359,14 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
   // Navigate to a page by entity type (for notification clicks)
   const navigateByEntity = (entityType: string) => {
     const entityToLabel: Record<string, string> = {
-      booking: "My Bookings", fuel_request: "Fuel Request",
-      maintenance: "Maintenance", incident: "Incidents",
+      booking:           "My Bookings",
+      fuel_request:      "Fuel Request",
+      maintenance:       "Report Maintenance",
+      incident:          "Incidents",
+      news_assignment:   "Assignments",
+      camera_deployment: "My Schedule",
+      camera_pickup:     "My Schedule",
+      user:              "Users",
     };
     const target = entityToLabel[entityType];
     if (!target) return;

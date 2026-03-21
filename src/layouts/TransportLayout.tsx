@@ -14,6 +14,7 @@ import VehicleManagement from "../modules/vehicles/pages/VehicleManagement";
 import DriverManagement from "../modules/drivers/pages/DriverManagement";
 import MileageLog from "../modules/fleet/pages/MileageLog";
 import ReportsDashboard from "../modules/reports/pages/ReportsDashboard";
+import AllAssignmentsBoard from "@/modules/news/pages/AllAssignmentsBoard";
 import ProfilePage from "@/pages/profile/ProfilePage";
 
 export default function TransportLayout() {
@@ -23,6 +24,7 @@ export default function TransportLayout() {
       navItems={[
         { label: "Dispatch",        element: <DispatchBoard /> },
         { label: "Close Trips",     element: <CloseTrips /> },
+        { label: "Assignments",     element: <AllAssignmentsBoard /> },
         { label: "Driver Schedule", element: <ScheduleManager /> },
         { label: "Shift Overrides", element: <ShiftAdmin /> },
         { label: "Maintenance",     element: <MaintenanceBoard /> },

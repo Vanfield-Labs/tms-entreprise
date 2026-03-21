@@ -6,6 +6,7 @@ import CreateFuelRequest from "../modules/fuel/pages/CreateFuelRequest";
 import MyFuelRequests from "../modules/fuel/pages/MyFuelRequests";
 import IncidentReportForm from "../modules/incidents/pages/IncidentReportForm";
 import MyIncidentReports from "../modules/incidents/pages/MyIncidentReports";
+import DriverAssignments from "@/modules/news/pages/DriverAssignments";
 import ProfilePage from "@/pages/profile/ProfilePage";
 
 export default function DriverLayout() {
@@ -13,8 +14,9 @@ export default function DriverLayout() {
     <AppShell
       title="Driver"
       navItems={[
-        { label: "My Trips",   element: <DriverTrips /> },
-        { label: "My Shifts",  element: <MyShifts /> },
+        { label: "My Trips",       element: <DriverTrips /> },
+        { label: "My Shifts",      element: <MyShifts /> },
+        { label: "Assignments",    element: <DriverAssignments /> },
         {
           label: "Fuel Request",
           element: (
@@ -33,7 +35,7 @@ export default function DriverLayout() {
             </div>
           ),
         },
-        { label: "Profile",    element: <ProfilePage /> },
+        { label: "Profile", element: <ProfilePage /> },
       ]}
     />
   );
