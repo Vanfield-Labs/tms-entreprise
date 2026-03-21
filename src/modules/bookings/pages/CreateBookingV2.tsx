@@ -157,9 +157,13 @@ export default function CreateBookingV2() {
         booking_category:  category,
         status:            "draft",
         needs_finance_approval: isNonReturnTravel,
-        // pickup/dropoff
-        pickup_location:  category === "pickup"  ? pickupLocation.trim()  : (category === "other" ? pickupLocation.trim() : null),
-        dropoff_location: category === "dropoff" ? dropoffLocation.trim() : null,
+        // pickup/dropoff — both columns are NOT NULL in DB
+        pickup_location: pickupLocation.trim() || (category === "travelling" ? "Office" : "—"),
+        dropoff_location: category === "dropoff"    ? dropoffLocation.trim() || "—"
+                        : category === "pickup"     ? dropoffLocation.trim() || pickupLocation.trim() || "—"
+                        : category === "travelling" ? destination.trim() || "—"
+                        : category === "production" ? dropoffLocation.trim() || pickupLocation.trim() || "—"
+                        : dropoffLocation.trim() || "—",
         gps_address:      gpsAddress.trim() || null,
         // production
         call_time:        category === "production" ? callTime : (category === "travelling" ? travelCallTime || null : null),
@@ -568,13 +572,7 @@ export default function CreateBookingV2() {
               </span>
             </div>
           ))}
-          {error && (
-            <div className="mt-3">
-              <Alert type="error" onDismiss={() => setError(null)}>
-                {error}
-              </Alert>
-            </div>
-          )}
+          {error && <Alert type="error" onDismiss={() => setError(null)} className="mt-3">{error}</Alert>}
           <div className="pt-4">
             <Btn variant="primary" className="w-full" onClick={submit} loading={saving}>
               Submit for Approval

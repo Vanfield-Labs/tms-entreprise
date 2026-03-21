@@ -117,6 +117,7 @@ export function Alert({
   type?: "info" | "error" | "success" | "amber";
   children: ReactNode;
   onDismiss?: () => void;
+  className?: string;
 }) {
   return (
     <div className={`alert alert-${type} justify-between`}>
