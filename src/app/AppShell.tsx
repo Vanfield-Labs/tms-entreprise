@@ -258,12 +258,31 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
   const baseItems = hasProfile ? items.slice(0, -1) : items;
   const isProfileActive = hasProfile && activeIndex === items.length - 1;
 
-  const go = (i: number) => {
+  const go = (i: number, pushHistory = true) => {
     setActiveIndex(i);
     setSidebarOpen(false);
     const item = items[i];
     if (item && !isElementItem(item)) item.onClick();
+    // Push a history entry so back button navigates between pages
+    if (pushHistory) {
+      window.history.pushState({ navIndex: i }, "", window.location.pathname);
+    }
   };
+
+  // Handle browser back/forward buttons
+  useEffect(() => {
+    const onPop = (e: PopStateEvent) => {
+      const idx = e.state?.navIndex;
+      if (typeof idx === "number" && idx >= 0 && idx < items.length) {
+        go(idx, false);
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    // Seed the initial history entry
+    window.history.replaceState({ navIndex: activeIndex }, "", window.location.pathname);
+    return () => window.removeEventListener("popstate", onPop);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items.length]);
 
   const activeItem = items[activeIndex];
   const activeLabel = activeItem?.label ?? "";

@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { PageSpinner, EmptyState, Badge, Card, SearchInput } from "@/components/TmsUI";
+import { usePagination, PaginationBar } from "@/hooks/usePagination";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
 type Booking = {
@@ -13,10 +14,10 @@ type Booking = {
 const STATUS_OPTS = ["all","draft","submitted","approved","rejected","dispatched","completed","closed"];
 
 export default function BookingsTable() {
-  const [rows,     setRows]    = useState<Booking[]>([]);
-  const [loading,  setLoading] = useState(true);
-  const [q,        setQ]       = useState("");
-  const [status,   setStatus]  = useState("all");
+  const [rows,    setRows]    = useState<Booking[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [q,       setQ]       = useState("");
+  const [status,  setStatus]  = useState("all");
 
   useEffect(() => {
     (async () => {
@@ -36,6 +37,8 @@ export default function BookingsTable() {
     return matchQ && matchS;
   });
 
+  const pg = usePagination(filtered);
+
   if (loading) return <PageSpinner />;
 
   return (
@@ -43,13 +46,9 @@ export default function BookingsTable() {
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="flex-1">
-          <SearchInput value={q} onChange={setQ} placeholder="Search purpose or location…" />
+          <SearchInput value={q} onChange={setQ} placeholder="Search purpose or location\u2026" />
         </div>
-        <select
-          value={status}
-          onChange={e => setStatus(e.target.value)}
-          className="tms-select sm:w-40"
-        >
+        <select value={status} onChange={e => setStatus(e.target.value)} className="tms-select sm:w-40">
           {STATUS_OPTS.map(s => <option key={s} value={s}>{s === "all" ? "All statuses" : s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
         </select>
       </div>
@@ -62,7 +61,7 @@ export default function BookingsTable() {
         <>
           {/* Mobile cards */}
           <div className="sm:hidden space-y-3">
-            {filtered.map(b => (
+            {pg.slice.map(b => (
               <Card key={b.id}>
                 <div className="p-4 space-y-2">
                   <div className="flex items-start justify-between gap-2">
@@ -70,11 +69,12 @@ export default function BookingsTable() {
                     <Badge status={b.status} />
                   </div>
                   <p className="text-xs text-[color:var(--text-muted)]">{fmtDate(b.trip_date)} at {b.trip_time}</p>
-                  <p className="text-xs text-[color:var(--text-muted)] truncate">{b.pickup_location} → {b.dropoff_location}</p>
+                  <p className="text-xs text-[color:var(--text-muted)] truncate">{b.pickup_location} \u2192 {b.dropoff_location}</p>
                   <p className="text-xs text-[color:var(--text-dim)]">{fmtDateTime(b.created_at)}</p>
                 </div>
               </Card>
             ))}
+            <PaginationBar {...pg} />
           </div>
 
           {/* Desktop table */}
@@ -83,13 +83,11 @@ export default function BookingsTable() {
               <table className="tms-table">
                 <thead>
                   <tr>
-                    {["Purpose","Date","Route","Type","Status","Created"].map(h => (
-                      <th key={h}>{h}</th>
-                    ))}
+                    {["Purpose","Date","Route","Type","Status","Created"].map(h => <th key={h}>{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(b => (
+                  {pg.slice.map(b => (
                     <tr key={b.id}>
                       <td className="font-medium max-w-[200px] truncate">{b.purpose}</td>
                       <td className="whitespace-nowrap">{fmtDate(b.trip_date)} {b.trip_time}</td>
@@ -105,6 +103,7 @@ export default function BookingsTable() {
                 </tbody>
               </table>
             </div>
+            <PaginationBar {...pg} />
           </div>
         </>
       )}

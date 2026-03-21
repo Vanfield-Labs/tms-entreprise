@@ -2,9 +2,9 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { PageSpinner, Card, CardHeader, CardBody, StatCard, Btn, Badge } from "@/components/TmsUI";
+import { usePagination, PaginationBar } from "@/hooks/usePagination";
 import { fmtMoney } from "@/lib/utils";
 
-// ── Types ────────────────────────────────────────────────────────────────────
 type Period = "week" | "month" | "quarter" | "year";
 type KPI = {
   total_bookings: number; approved_bookings: number; rejected_bookings: number;
@@ -17,11 +17,9 @@ type FuelRow      = { status: string; amount: number | null; liters: number | nu
 type MaintRow     = { status: string; issue_type: string | null; created_at: string; vehicles: { plate_number: string } | null };
 type VehicleUtil  = { plate_number: string; trip_count: number; total_km: number | null };
 
-// ── Period helpers ───────────────────────────────────────────────────────────
 function getPeriodRange(period: Period): { from: string; to: string; label: string } {
   const now = new Date();
   let from = new Date(), to = new Date();
-
   if (period === "week") {
     const dow = now.getDay();
     from = new Date(now); from.setDate(now.getDate() - dow); from.setHours(0,0,0,0);
@@ -37,10 +35,8 @@ function getPeriodRange(period: Period): { from: string; to: string; label: stri
     from = new Date(now.getFullYear(), 0, 1);
     to   = new Date(now.getFullYear(), 11, 31, 23, 59, 59);
   }
-
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-
   const labels: Record<Period, string> = {
     week:    `Week of ${monthNames[from.getMonth()]} ${from.getDate()}`,
     month:   `${monthNames[from.getMonth()]} ${from.getFullYear()}`,
@@ -50,55 +46,71 @@ function getPeriodRange(period: Period): { from: string; to: string; label: stri
   return { from: fmt(from), to: fmt(to), label: labels[period] };
 }
 
-// ── Excel export (pure CSV approach, works universally) ─────────────────────
+// ── Nicely-formatted Excel-style CSV export ──────────────────────────────────
 function exportToCSV(period: Period, kpi: KPI, bookings: BookingRow[], fuel: FuelRow[], maint: MaintRow[]) {
   const { label } = getPeriodRange(period);
-  const rows: string[][] = [];
-  rows.push([`TMS Report — ${label}`, "", "", ""]);
-  rows.push([]);
-  rows.push(["SUMMARY", ""]);
-  rows.push(["Total Bookings",     String(kpi.total_bookings)]);
-  rows.push(["Completed Trips",    String(kpi.completed_bookings)]);
-  rows.push(["Approved Bookings",  String(kpi.approved_bookings)]);
-  rows.push(["Rejected Bookings",  String(kpi.rejected_bookings)]);
-  rows.push(["Fuel Requests",      String(kpi.total_fuel_requests)]);
-  rows.push(["Fuel Amount (GHS)",  String(kpi.total_fuel_amount ?? 0)]);
-  rows.push(["Fuel Liters",        String(kpi.total_fuel_liters ?? 0)]);
-  rows.push(["Maintenance Issues", String(kpi.total_maintenance)]);
-  rows.push([]);
-  rows.push(["BOOKINGS", "Purpose", "Type", "Status", "Date"]);
-  for (const b of bookings) {
-    rows.push(["", b.purpose ?? "—", b.booking_type ?? "—", b.status, b.trip_date]);
-  }
-  rows.push([]);
-  rows.push(["FUEL REQUESTS", "Vehicle", "Fuel Type", "Liters", "Amount", "Vendor", "Date"]);
-  for (const f of fuel) {
-    rows.push([
-      "", f.vehicles?.plate_number ?? "—", f.vehicles?.fuel_type ?? "—",
-      String(f.liters ?? "—"), String(f.amount ?? "—"), f.vendor ?? "—", f.request_date,
-    ]);
-  }
-  rows.push([]);
-  rows.push(["MAINTENANCE", "Vehicle", "Issue Type", "Status", "Date"]);
-  for (const m of maint) {
-    rows.push(["", m.vehicles?.plate_number ?? "—", m.issue_type ?? "—", m.status, m.created_at.slice(0,10)]);
-  }
+  const esc = (v: any) => `"${String(v ?? "").replace(/"/g, '""')}"`;
 
-  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = `TMS_Report_${label.replace(/\s+/g,"_")}.csv`;
+  const sections: string[][] = [];
+
+  // Title
+  sections.push([esc(`TMS REPORT — ${label}`), "", "", "", ""]);
+  sections.push([esc(`Generated: ${new Date().toLocaleString()}`), "", "", "", ""]);
+  sections.push(["", "", "", "", ""]);
+
+  // Summary
+  sections.push([esc("SUMMARY"), "", "", "", ""]);
+  [
+    ["Total Bookings",     kpi.total_bookings],
+    ["Completed Trips",    kpi.completed_bookings],
+    ["Approved Bookings",  kpi.approved_bookings],
+    ["Rejected Bookings",  kpi.rejected_bookings],
+    ["Total Fuel Requests",kpi.total_fuel_requests],
+    ["Total Fuel Spend",   fmtMoney(kpi.total_fuel_amount)],
+    ["Total Fuel Litres",  `${kpi.total_fuel_liters.toFixed(1)} L`],
+    ["Maintenance Issues", kpi.total_maintenance],
+  ].forEach(([k, v]) => sections.push([esc(k), esc(v), "", "", ""]));
+  sections.push(["", "", "", "", ""]);
+
+  // Bookings
+  sections.push([esc("BOOKINGS"), esc("Purpose"), esc("Type"), esc("Status"), esc("Date")]);
+  bookings.forEach(b => sections.push(["", esc(b.purpose), esc(b.booking_type), esc(b.status), esc(b.trip_date)]));
+  sections.push(["", "", "", "", ""]);
+
+  // Fuel
+  sections.push([esc("FUEL REQUESTS"), esc("Vehicle"), esc("Fuel Type"), esc("Litres"), esc("Amount"), esc("Vendor"), esc("Date")]);
+  fuel.forEach(f => sections.push([
+    "", esc(f.vehicles?.plate_number), esc(f.vehicles?.fuel_type),
+    esc(f.liters != null ? `${f.liters} L` : "—"),
+    esc(f.amount != null ? fmtMoney(f.amount) : "—"),
+    esc(f.vendor), esc(f.request_date),
+  ]));
+  sections.push(["", "", "", "", "", "", ""]);
+
+  // Maintenance
+  sections.push([esc("MAINTENANCE"), esc("Vehicle"), esc("Issue Type"), esc("Status"), esc("Date")]);
+  maint.forEach(m => sections.push([
+    "", esc(m.vehicles?.plate_number), esc(m.issue_type),
+    esc(m.status), esc(m.created_at.slice(0,10)),
+  ]));
+
+  const csv = sections.map(r => r.join(",")).join("\n");
+  const bom  = "\uFEFF"; // UTF-8 BOM so Excel opens it correctly
+  const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8;" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href = url; a.download = `TMS_Report_${label.replace(/\s+/g, "_")}.csv`;
   a.click(); URL.revokeObjectURL(url);
 }
 
-// ── Simple bar component ─────────────────────────────────────────────────────
+// ── Simple bar ───────────────────────────────────────────────────────────────
 function Bar({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
   const pct = max > 0 ? Math.round((value / max) * 100) : 0;
   return (
     <div className="space-y-1">
       <div className="flex justify-between text-xs" style={{ color: "var(--text-muted)" }}>
-        <span>{label}</span><span className="font-semibold" style={{ color: "var(--text)" }}>{value}</span>
+        <span>{label}</span>
+        <span className="font-semibold" style={{ color: "var(--text)" }}>{value}</span>
       </div>
       <div className="w-full h-2 rounded-full" style={{ background: "var(--surface-2)" }}>
         <div className="h-2 rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
@@ -107,7 +119,7 @@ function Bar({ label, value, max, color }: { label: string; value: number; max: 
   );
 }
 
-// ── Donut component ──────────────────────────────────────────────────────────
+// ── Donut ────────────────────────────────────────────────────────────────────
 function DonutChart({ data }: { data: { label: string; value: number; color: string }[] }) {
   const total = data.reduce((s, d) => s + d.value, 0);
   if (total === 0) return <div className="text-xs text-center py-4" style={{ color: "var(--text-dim)" }}>No data</div>;
@@ -117,15 +129,12 @@ function DonutChart({ data }: { data: { label: string; value: number; color: str
     <div className="flex flex-col sm:flex-row items-center gap-4">
       <svg viewBox="0 0 100 100" className="w-28 h-28 shrink-0">
         {data.filter(d => d.value > 0).map((d, i) => {
-          const pct = d.value / total;
+          const pct  = d.value / total;
           const dash = pct * circ;
-          const seg = (
-            <circle key={i} cx="50" cy="50" r={radius} fill="none" stroke={d.color} strokeWidth="18"
-              strokeDasharray={`${dash} ${circ - dash}`} strokeDashoffset={-offset}
-              transform="rotate(-90 50 50)" />
-          );
-          offset += dash;
-          return seg;
+          const seg  = <circle key={i} cx="50" cy="50" r={radius} fill="none" stroke={d.color}
+            strokeWidth="18" strokeDasharray={`${dash} ${circ - dash}`}
+            strokeDashoffset={-offset} transform="rotate(-90 50 50)" />;
+          offset += dash; return seg;
         })}
         <text x="50" y="54" textAnchor="middle" fontSize="14" fontWeight="bold" fill="var(--text)">{total}</text>
       </svg>
@@ -142,15 +151,48 @@ function DonutChart({ data }: { data: { label: string; value: number; color: str
   );
 }
 
-// ── Main component ───────────────────────────────────────────────────────────
+// ── Export confirm dialog ─────────────────────────────────────────────────────
+function ExportConfirm({ open, label, onConfirm, onCancel }: { open: boolean; label: string; onConfirm: () => void; onCancel: () => void }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
+      onClick={onCancel}>
+      <div className="w-full max-w-sm rounded-2xl border shadow-2xl p-6"
+        style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+        onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 32, textAlign: "center", marginBottom: 12 }}>📊</div>
+        <h3 className="text-base font-bold mb-2 text-center" style={{ color: "var(--text)" }}>Export Report</h3>
+        <p className="text-sm mb-1 text-center" style={{ color: "var(--text-muted)" }}>
+          Download <strong>{label}</strong> as a CSV file?
+        </p>
+        <p className="text-xs mb-5 text-center" style={{ color: "var(--text-dim)" }}>
+          Opens correctly in Microsoft Excel and Google Sheets.
+        </p>
+        <div className="flex gap-3">
+          <button className="btn btn-ghost flex-1" onClick={onCancel}>Cancel</button>
+          <button className="btn btn-primary flex-1" onClick={onConfirm}>⬇ Download</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────────
 export default function ReportsDashboard() {
-  const [period, setPeriod] = useState<Period>("month");
-  const [loading, setLoading] = useState(true);
-  const [kpi, setKpi] = useState<KPI | null>(null);
-  const [bookings, setBookings] = useState<BookingRow[]>([]);
-  const [fuel, setFuel] = useState<FuelRow[]>([]);
-  const [maint, setMaint] = useState<MaintRow[]>([]);
+  const [period, setPeriod]       = useState<Period>("month");
+  const [loading, setLoading]     = useState(true);
+  const [kpi, setKpi]             = useState<KPI | null>(null);
+  const [bookings, setBookings]   = useState<BookingRow[]>([]);
+  const [fuel, setFuel]           = useState<FuelRow[]>([]);
+  const [maint, setMaint]         = useState<MaintRow[]>([]);
   const [utilization, setUtilization] = useState<VehicleUtil[]>([]);
+  const [showExport, setShowExport]   = useState(false);
+
+  const bookingsPg = usePagination(bookings);
+  const fuelPg     = usePagination(fuel);
+  const maintPg    = usePagination(maint);
+  const utilPg     = usePagination(utilization);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -185,7 +227,6 @@ export default function ReportsDashboard() {
       active_vehicles:     vRows.length,
       active_drivers:      0,
     });
-
     setLoading(false);
   }, [period]);
 
@@ -193,20 +234,15 @@ export default function ReportsDashboard() {
 
   const { label } = getPeriodRange(period);
 
-  // Booking status distribution
   const bookingStatusData = [
-    { label: "Completed", value: kpi?.completed_bookings ?? 0, color: "var(--green)" },
+    { label: "Completed", value: kpi?.completed_bookings ?? 0,     color: "var(--green)"  },
     { label: "Approved",  value: bookings.filter(b => b.status === "approved").length, color: "var(--accent)" },
-    { label: "Rejected",  value: kpi?.rejected_bookings ?? 0, color: "var(--red)" },
+    { label: "Rejected",  value: kpi?.rejected_bookings ?? 0,      color: "var(--red)"    },
     { label: "Pending",   value: bookings.filter(b => ["draft","submitted"].includes(b.status)).length, color: "var(--amber)" },
   ];
-
-  // Booking type breakdown
   const typeCount: Record<string, number> = {};
   for (const b of bookings) typeCount[b.booking_type] = (typeCount[b.booking_type] ?? 0) + 1;
   const maxType = Math.max(...Object.values(typeCount), 1);
-
-  // Maintenance by status
   const maintStatusData = [
     { label: "Reported",    value: maint.filter(m => m.status === "reported").length,    color: "var(--amber)" },
     { label: "In Progress", value: maint.filter(m => m.status === "in_progress").length, color: "var(--accent)" },
@@ -224,7 +260,14 @@ export default function ReportsDashboard() {
 
   return (
     <div className="space-y-5">
-      {/* Header with period selector + export */}
+      <ExportConfirm
+        open={showExport}
+        label={label}
+        onConfirm={() => { if (kpi) exportToCSV(period, kpi, bookings, fuel, maint); setShowExport(false); }}
+        onCancel={() => setShowExport(false)}
+      />
+
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
         <div>
           <h1 className="page-title">Reports</h1>
@@ -237,49 +280,49 @@ export default function ReportsDashboard() {
                 className="px-3 py-1.5 text-xs font-medium transition-colors"
                 style={{
                   background: period === p.value ? "var(--accent)" : "var(--surface)",
-                  color: period === p.value ? "#fff" : "var(--text-muted)",
+                  color:      period === p.value ? "#fff" : "var(--text-muted)",
                 }}>
                 {p.label}
               </button>
             ))}
           </div>
-          <Btn variant="ghost" size="sm"
-            onClick={() => kpi && exportToCSV(period, kpi, bookings, fuel, maint)}>
-            ⬇ Export
-          </Btn>
+          <Btn variant="ghost" size="sm" onClick={() => setShowExport(true)}>⬇ Export</Btn>
         </div>
       </div>
 
-      {/* KPI grid */}
+      {/* KPI grid — fluid font scales with container */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard label="Total Bookings"  value={kpi?.total_bookings ?? 0}    accent="accent" />
-        <StatCard label="Completed Trips" value={kpi?.completed_bookings ?? 0} accent="green" />
-        <StatCard label="Fuel Requests"   value={kpi?.total_fuel_requests ?? 0} accent="amber" />
-        <StatCard label="Maintenance"     value={kpi?.total_maintenance ?? 0}  accent="red" />
+        {[
+          { label: "Total Bookings",  value: kpi?.total_bookings ?? 0,     accent: "accent" as const },
+          { label: "Completed Trips", value: kpi?.completed_bookings ?? 0, accent: "green"  as const },
+          { label: "Fuel Requests",   value: kpi?.total_fuel_requests ?? 0,accent: "amber"  as const },
+          { label: "Maintenance",     value: kpi?.total_maintenance ?? 0,  accent: "red"    as const },
+        ].map(s => (
+          <div key={s.label} className="stat-card" style={{ overflow: "hidden" }}>
+            <div className="stat-label">{s.label}</div>
+            <div style={{
+              fontSize: "clamp(20px, 4vw, 36px)", fontWeight: 700, lineHeight: 1,
+              fontFamily: "'IBM Plex Mono', monospace",
+              color: { accent: "var(--accent)", green: "var(--green)", amber: "var(--amber)", red: "var(--red)" }[s.accent],
+              marginTop: 6,
+            }}>{s.value}</div>
+          </div>
+        ))}
       </div>
+
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <StatCard label="Fuel Spend" value={fmtMoney(kpi?.total_fuel_amount ?? 0)} accent="accent" />
-        <StatCard label="Liters Dispensed" value={`${(kpi?.total_fuel_liters ?? 0).toLocaleString()} L`} />
+        <StatCard label="Fuel Spend"        value={fmtMoney(kpi?.total_fuel_amount ?? 0)} accent="accent" />
+        <StatCard label="Litres Dispensed"  value={`${(kpi?.total_fuel_liters ?? 0).toLocaleString()} L`} />
         <StatCard label="Rejected Bookings" value={kpi?.rejected_bookings ?? 0} accent="red" />
       </div>
 
-      {/* Charts row */}
+      {/* Charts */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader title="Booking Status" />
-          <CardBody>
-            <DonutChart data={bookingStatusData} />
-          </CardBody>
-        </Card>
-        <Card>
-          <CardHeader title="Maintenance Status" />
-          <CardBody>
-            <DonutChart data={maintStatusData} />
-          </CardBody>
-        </Card>
+        <Card><CardHeader title="Booking Status" /><CardBody><DonutChart data={bookingStatusData} /></CardBody></Card>
+        <Card><CardHeader title="Maintenance Status" /><CardBody><DonutChart data={maintStatusData} /></CardBody></Card>
       </div>
 
-      {/* Booking type breakdown */}
+      {/* Booking types */}
       {Object.keys(typeCount).length > 0 && (
         <Card>
           <CardHeader title="Bookings by Type" />
@@ -291,24 +334,23 @@ export default function ReportsDashboard() {
         </Card>
       )}
 
-      {/* Fuel summary */}
+      {/* Fuel by vehicle */}
       {fuel.length > 0 && (
         <Card>
-          <CardHeader title="Fuel Summary" />
+          <CardHeader title="Fuel Summary by Vehicle" />
           <CardBody>
-            {/* By vehicle */}
             {(() => {
-              const byVehicle: Record<string, { liters: number; amount: number }> = {};
+              const byV: Record<string, { liters: number; amount: number }> = {};
               for (const f of fuel) {
-                const plate = f.vehicles?.plate_number ?? "Unknown";
-                if (!byVehicle[plate]) byVehicle[plate] = { liters: 0, amount: 0 };
-                byVehicle[plate].liters += f.liters ?? 0;
-                byVehicle[plate].amount += f.amount ?? 0;
+                const p = f.vehicles?.plate_number ?? "Unknown";
+                if (!byV[p]) byV[p] = { liters: 0, amount: 0 };
+                byV[p].liters += f.liters ?? 0;
+                byV[p].amount += f.amount ?? 0;
               }
-              const maxL = Math.max(...Object.values(byVehicle).map(v => v.liters), 1);
+              const maxL = Math.max(...Object.values(byV).map(v => v.liters), 1);
               return (
                 <div className="space-y-3">
-                  {Object.entries(byVehicle).sort((a,b) => b[1].amount - a[1].amount).map(([plate, v]) => (
+                  {Object.entries(byV).sort((a,b) => b[1].amount - a[1].amount).map(([plate, v]) => (
                     <div key={plate}>
                       <div className="flex justify-between text-xs mb-1" style={{ color: "var(--text-muted)" }}>
                         <span>{plate}</span>
@@ -326,18 +368,16 @@ export default function ReportsDashboard() {
         </Card>
       )}
 
-      {/* Vehicle utilization */}
+      {/* Vehicle utilization with pagination */}
       {utilization.length > 0 && (
         <Card>
           <CardHeader title="Vehicle Utilization (30 days)" />
           <CardBody>
             <div className="overflow-x-auto">
               <table className="tms-table">
-                <thead>
-                  <tr><th>Vehicle</th><th>Trips</th><th>Total KM</th></tr>
-                </thead>
+                <thead><tr><th>Vehicle</th><th>Trips</th><th>Total KM</th></tr></thead>
                 <tbody>
-                  {utilization.sort((a,b) => b.trip_count - a.trip_count).map(v => (
+                  {utilPg.slice.sort((a,b) => b.trip_count - a.trip_count).map(v => (
                     <tr key={v.plate_number}>
                       <td className="font-medium">{v.plate_number}</td>
                       <td>{v.trip_count}</td>
@@ -347,17 +387,18 @@ export default function ReportsDashboard() {
                 </tbody>
               </table>
             </div>
+            <PaginationBar {...utilPg} />
           </CardBody>
         </Card>
       )}
 
-      {/* Maintenance detail */}
+      {/* Maintenance detail with pagination */}
       {maint.length > 0 && (
         <Card>
           <CardHeader title="Maintenance Issues" />
           <CardBody>
             <div className="sm:hidden space-y-2">
-              {maint.slice(0,20).map((m,i) => (
+              {maintPg.slice.map((m,i) => (
                 <div key={i} className="flex items-center justify-between gap-2 py-2 border-b last:border-0"
                   style={{ borderColor: "var(--border)" }}>
                   <div>
@@ -372,7 +413,7 @@ export default function ReportsDashboard() {
               <table className="tms-table">
                 <thead><tr><th>Vehicle</th><th>Issue</th><th>Status</th><th>Date</th></tr></thead>
                 <tbody>
-                  {maint.slice(0,50).map((m,i) => (
+                  {maintPg.slice.map((m,i) => (
                     <tr key={i}>
                       <td>{m.vehicles?.plate_number ?? "—"}</td>
                       <td className="capitalize">{m.issue_type ?? "—"}</td>
@@ -383,6 +424,7 @@ export default function ReportsDashboard() {
                 </tbody>
               </table>
             </div>
+            <PaginationBar {...maintPg} />
           </CardBody>
         </Card>
       )}
