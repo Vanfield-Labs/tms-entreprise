@@ -2,6 +2,8 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 
+const CAMERA_UNIT_ID = "252e08c0-0999-4afe-9eff-a15365bd4d47";
+
 const ROLE_HOME: Record<string, string> = {
   admin:                "/dashboard/admin",
   corporate_approver:   "/dashboard/corporate",
@@ -39,6 +41,14 @@ export default function RoleRedirect() {
         </div>
       </div>
     );
+  }
+
+  // Camera Department unit head → dedicated camera dashboard
+  if (
+    (profile.system_role === "unit_head" || profile.system_role === "staff") &&
+    profile.unit_id === CAMERA_UNIT_ID
+  ) {
+    return <Navigate to="/dashboard/camera" replace />;
   }
 
   const home = ROLE_HOME[profile.system_role] ?? "/dashboard/department";

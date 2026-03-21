@@ -10,6 +10,7 @@ import CorporateLayout from "@/layouts/CorporateLayout";
 import TransportLayout from "@/layouts/TransportLayout";
 import DriverLayout from "@/layouts/DriverLayout";
 import DepartmentLayout from "@/layouts/DepartmentLayout";
+import CameraLayout from "@/layouts/CameraLayout";
 
 export const routes: RouteObject[] = [
   // Public
@@ -23,11 +24,12 @@ export const routes: RouteObject[] = [
       { path: "/", element: <RoleRedirect /> },
 
       // Role dashboards
-      { path: "/dashboard/admin", element: <AdminLayout /> },
-      { path: "/dashboard/corporate", element: <CorporateLayout /> },
-      { path: "/dashboard/transport", element: <TransportLayout /> },
-      { path: "/dashboard/driver", element: <DriverLayout /> },
+      { path: "/dashboard/admin",      element: <AdminLayout /> },
+      { path: "/dashboard/corporate",  element: <CorporateLayout /> },
+      { path: "/dashboard/transport",  element: <TransportLayout /> },
+      { path: "/dashboard/driver",     element: <DriverLayout /> },
       { path: "/dashboard/department", element: <DepartmentLayout /> },
+      { path: "/dashboard/camera",     element: <CameraLayout /> },
 
       // Catch-all redirect
       { path: "*", element: <RoleRedirect /> },
