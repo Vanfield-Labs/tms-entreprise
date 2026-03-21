@@ -43,11 +43,13 @@ export default function RoleRedirect() {
     );
   }
 
-  // Camera Department unit head → dedicated camera dashboard
-  if (
-    (profile.system_role === "unit_head" || profile.system_role === "staff") &&
-    profile.unit_id === CAMERA_UNIT_ID
-  ) {
+  // Camera Department (unit_head AND staff) → dedicated camera layout
+  if (profile.unit_id === CAMERA_UNIT_ID) {
+    return <Navigate to="/dashboard/camera" replace />;
+  }
+
+  // Camera Department (both unit_head and staff) → dedicated camera layout
+  if (profile.unit_id === CAMERA_UNIT_ID) {
     return <Navigate to="/dashboard/camera" replace />;
   }
 
