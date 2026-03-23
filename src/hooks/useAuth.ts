@@ -1,5 +1,5 @@
 // src/hooks/useAuth.ts
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 
@@ -13,120 +13,80 @@ export type Profile = {
   position_title?: string | null;
 };
 
-const INACTIVITY_MS   = 30 * 60 * 1000; // 30 minutes
-const INACTIVITY_KEY  = "tms-inactivity-signout";
-const LAST_ACTIVE_KEY = "tms-last-active";
-
-function touchActivity() {
-  sessionStorage.setItem(LAST_ACTIVE_KEY, String(Date.now()));
+// ── Inactivity flag ───────────────────────────────────────────────────────────
+const INACTIVITY_FLAG = "tms_inactivity_logout";
+export function setInactivityFlag() {
+  try { sessionStorage.setItem(INACTIVITY_FLAG, "1"); } catch {}
 }
-
-function isInactive(): boolean {
-  const last = Number(sessionStorage.getItem(LAST_ACTIVE_KEY) ?? 0);
-  if (!last) return false;
-  return Date.now() - last > INACTIVITY_MS;
-}
-
-async function recordLoginEvent(
-  userId: string | null,
-  email: string | null,
-  event: string
-) {
+export function consumeInactivityFlag(): boolean {
   try {
-    await supabase.rpc("record_login_event", {
-      p_user_id:    userId,
-      p_email:      email,
-      p_event:      event,
-      p_ip:         null,
-      p_user_agent: navigator.userAgent.slice(0, 250),
-    });
-  } catch {
-    // Non-fatal — don't block auth flow
-  }
+    const val = sessionStorage.getItem(INACTIVITY_FLAG);
+    if (val) { sessionStorage.removeItem(INACTIVITY_FLAG); return true; }
+  } catch {}
+  return false;
 }
 
+// ── useAuth ───────────────────────────────────────────────────────────────────
 export function useAuth() {
-  const [user,    setUser]    = useState<any>(null);
+  const [user, setUser]       = useState<any>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const inactivityTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchProfile = async (userId: string) => {
-    const { data } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("user_id", userId)
-      .single();
-    setProfile(data ?? null);
-  };
-
-  // ── Inactivity sign-out ───────────────────────────────────────────────────
-  const resetInactivityTimer = () => {
-    touchActivity();
-    if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
-    inactivityTimerRef.current = setTimeout(async () => {
-      // Double-check inactivity before signing out
-      if (isInactive()) {
-        sessionStorage.setItem(INACTIVITY_KEY, "1");
-        const { data: { user: u } } = await supabase.auth.getUser();
-        if (u) await recordLoginEvent(u.id, u.email ?? null, "session_expired");
-        await supabase.auth.signOut();
-        window.location.href = "/login";
-      }
-    }, INACTIVITY_MS);
-  };
-
-  const startActivityTracking = () => {
-    touchActivity();
-    const events = ["click", "keypress", "scroll", "mousemove", "touchstart"];
-    events.forEach(ev => window.addEventListener(ev, resetInactivityTimer, { passive: true }));
-    resetInactivityTimer();
-    return () => events.forEach(ev => window.removeEventListener(ev, resetInactivityTimer));
+    try {
+      const { data } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("user_id", userId)
+        .single();
+      setProfile(data ?? null);
+    } catch {
+      setProfile(null);
+    }
   };
 
   useEffect(() => {
-    let stopTracking: (() => void) | null = null;
+    // Safety net: never spin forever — force loading=false after 6s
+    const safetyTimeout = setTimeout(() => setLoading(false), 6000);
 
     supabase.auth.getSession().then(({ data }) => {
       const u = data.session?.user ?? null;
       setUser(u);
       if (u) {
-        fetchProfile(u.id).finally(() => setLoading(false));
-        stopTracking = startActivityTracking();
+        fetchProfile(u.id).finally(() => {
+          clearTimeout(safetyTimeout);
+          setLoading(false);
+        });
       } else {
+        clearTimeout(safetyTimeout);
         setLoading(false);
       }
+    }).catch(() => {
+      clearTimeout(safetyTimeout);
+      setLoading(false);
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       const u = session?.user ?? null;
       setUser(u);
       if (u) {
-        fetchProfile(u.id);
-        if (!stopTracking) stopTracking = startActivityTracking();
-        // Record login on new session
-        if (_event === "SIGNED_IN") {
-          await recordLoginEvent(u.id, u.email ?? null, "login_success");
-        }
+        fetchProfile(u.id).finally(() => setLoading(false));
       } else {
         setProfile(null);
         setLoading(false);
-        if (stopTracking) { stopTracking(); stopTracking = null; }
-        if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
       }
     });
 
     return () => {
+      clearTimeout(safetyTimeout);
       listener.subscription.unsubscribe();
-      if (stopTracking) stopTracking();
-      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
     };
   }, []);
 
   return { user, profile, loading };
 }
 
-/** Hook that also handles redirect-on-login / redirect-on-logout */
+// ── useAuthGuard ──────────────────────────────────────────────────────────────
 export function useAuthGuard() {
   const auth = useAuth();
   const navigate = useNavigate();
@@ -136,22 +96,14 @@ export function useAuthGuard() {
     if (auth.loading) return;
     const publicPaths = ["/login", "/2fa"];
     const isPublic = publicPaths.includes(location.pathname);
-
     if (!auth.user && !isPublic) {
       navigate("/login", { replace: true, state: { from: location } });
     }
-    if (auth.user && location.pathname === "/login") {
+    if (auth.user && isPublic) {
       const from = (location.state as any)?.from?.pathname ?? "/";
       navigate(from, { replace: true });
     }
   }, [auth.loading, auth.user, location.pathname]);
 
   return auth;
-}
-
-/** Expose inactivity flag for Login page to display message */
-export function consumeInactivityFlag(): boolean {
-  const flag = sessionStorage.getItem(INACTIVITY_KEY) === "1";
-  if (flag) sessionStorage.removeItem(INACTIVITY_KEY);
-  return flag;
 }
