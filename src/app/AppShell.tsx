@@ -238,16 +238,46 @@ function ConfirmDialog({
 // ─── AppShell ─────────────────────────────────────────────────────────────────
 export default function AppShell({ title, nav, navItems, children }: Props) {
   const { theme, toggleTheme } = useTheme();
-  // Desktop sidebar: open by default on login; can be toggled via logo click
-  const [sidebarOpen, setSidebarOpen] = useState(false);      // mobile overlay
-  const [desktopCollapsed, setDesktopCollapsed] = useState(false); // desktop collapse
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [profile, setProfile] = useState<{ full_name: string; system_role: string; unit_id: string | null; position_title: string | null } | null>(null);
   const [unitName, setUnitName] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>("");
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
-  // Nav badge counts: keyed by nav label
   const [navBadges, setNavBadges] = useState<Record<string, number>>({});
+
+  // ── NEW: PWA install prompt ───────────────────────────────────────────────
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [appInstalled,  setAppInstalled]  = useState(false);
+
+  useEffect(() => {
+    const handler = (e: any) => { e.preventDefault(); setInstallPrompt(e); };
+    window.addEventListener("beforeinstallprompt", handler);
+    window.addEventListener("appinstalled", () => { setInstallPrompt(null); setAppInstalled(true); });
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === "accepted") { setInstallPrompt(null); setAppInstalled(true); }
+  };
+
+  // ── NEW: Offline detection ────────────────────────────────────────────────
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+  useEffect(() => {
+    const goOnline  = () => setIsOffline(false);
+    const goOffline = () => setIsOffline(true);
+    window.addEventListener("online",  goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online",  goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
 
   const items = useMemo<NavItem[]>(() => {
     if (navItems?.length) return navItems;
@@ -264,13 +294,11 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
     setSidebarOpen(false);
     const item = items[i];
     if (item && !isElementItem(item)) item.onClick();
-    // Push a history entry so back button navigates between pages
     if (pushHistory) {
       window.history.pushState({ navIndex: i }, "", window.location.pathname);
     }
   };
 
-  // Handle browser back/forward buttons
   useEffect(() => {
     const onPop = (e: PopStateEvent) => {
       const idx = e.state?.navIndex;
@@ -279,13 +307,11 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
       }
     };
     window.addEventListener("popstate", onPop);
-    // Seed the initial history entry
     window.history.replaceState({ navIndex: activeIndex }, "", window.location.pathname);
     return () => window.removeEventListener("popstate", onPop);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items.length]);
 
-  // Handle notification-click navigation: tms:navigate event dispatched by NotificationBell
   useEffect(() => {
     const onNavigate = (e: Event) => {
       const label = (e as CustomEvent<{ label: string }>).detail?.label;
@@ -307,7 +333,6 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
     window.location.href = "/login";
   };
 
-  // Load profile + set userId
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -325,7 +350,6 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
     })();
   }, []);
 
-  // Load pending counts for nav badges
   useEffect(() => {
     if (!profile) return;
     const role = profile.system_role;
@@ -356,7 +380,6 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
     Promise.all(promises).then(() => setNavBadges({ ...badges }));
   }, [profile]);
 
-  // Navigate to a page by entity type (for notification clicks)
   const navigateByEntity = (entityType: string) => {
     const entityToLabel: Record<string, string> = {
       booking:           "My Bookings",
@@ -412,6 +435,17 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
         onCancel={() => setShowSignOutConfirm(false)}
       />
 
+      {/* ── NEW: Offline banner ───────────────────────────────────────────── */}
+      {isOffline && (
+        <div className="flex items-center justify-center gap-2 px-4 py-2 text-xs font-medium shrink-0"
+          style={{ background: "var(--amber-dim)", borderBottom: "1px solid var(--amber)", color: "var(--amber)" }}>
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M12 12h.01M3 3l18 18"/>
+          </svg>
+          You are offline — some features may be unavailable
+        </div>
+      )}
+
       {/* ══════════════════════════════════════════════════════
           MOBILE TOP BAR
       ══════════════════════════════════════════════════════ */}
@@ -448,9 +482,6 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
 
         {/* ══════════════════════════════════════════════════════
             SIDEBAR
-            - Desktop: collapsible (logo click toggles)
-            - When collapsed: shows icons + badge dots only
-            - Mobile: slide-in overlay
         ══════════════════════════════════════════════════════ */}
         <aside className={`
           fixed inset-y-0 left-0 z-50 flex flex-col
@@ -460,7 +491,7 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
           ${sidebarOpen ? "translate-x-0 w-72" : "-translate-x-full w-72"}
           ${desktopCollapsed ? "lg:w-16" : "lg:w-64 xl:w-72"}
         `}>
-          {/* Logo row — click to toggle desktop collapse */}
+          {/* Logo row */}
           <div
             className="flex items-center justify-between px-4 py-5 border-b border-[color:var(--border)] shrink-0 cursor-pointer select-none"
             onClick={() => setDesktopCollapsed(c => !c)}
@@ -481,20 +512,17 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
                   <p className="text-[10px] text-[color:var(--text-muted)] uppercase tracking-widest truncate">{logoSubtitle}</p>
                 </div>
               )}
-              {/* Always show on mobile expanded */}
               <div className="min-w-0 lg:hidden">
                 <p className="text-sm font-bold text-[color:var(--text)] leading-tight">TMS Portal</p>
                 <p className="text-[10px] text-[color:var(--text-muted)] uppercase tracking-widest truncate">{logoSubtitle}</p>
               </div>
             </div>
-            {/* Mobile close button */}
             <button onClick={e => { e.stopPropagation(); setSidebarOpen(false); }}
               className="lg:hidden p-1.5 rounded-lg text-[color:var(--text-muted)] hover:bg-[color:var(--surface-2)] shrink-0">
               <svg width="16" height="16" fill="none" viewBox="0 0 18 18">
                 <path d="M4 4 14 14M14 4 4 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
               </svg>
             </button>
-            {/* Desktop collapse indicator */}
             {!desktopCollapsed && (
               <div className="hidden lg:flex p-1 rounded-md text-[color:var(--text-dim)] hover:text-[color:var(--text-muted)]">
                 <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -530,7 +558,6 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
 
                   {!desktopCollapsed && <span className="flex-1 truncate">{item.label}</span>}
 
-                  {/* Badge */}
                   {badge > 0 && !desktopCollapsed && (
                     <span className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
                       style={{ background: "var(--red)" }}>
@@ -541,7 +568,6 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
                     <span className="absolute top-1 right-1 w-2 h-2 rounded-full" style={{ background: "var(--red)" }} />
                   )}
 
-                  {/* Tooltip on collapsed */}
                   {desktopCollapsed && (
                     <span className="absolute left-full ml-2 px-2 py-1 rounded-lg text-xs font-medium whitespace-nowrap z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
                       style={{ background: "var(--text)", color: "var(--bg)" }}>
@@ -553,8 +579,27 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
             })}
           </nav>
 
-          {/* Footer: sign out only */}
-          <div className={`border-t border-[color:var(--border)] shrink-0 ${desktopCollapsed ? "px-2 py-3" : "px-4 py-4"}`}>
+          {/* Footer: install button (when available) + sign out */}
+          <div className={`border-t border-[color:var(--border)] shrink-0 space-y-0.5 ${desktopCollapsed ? "px-2 py-3" : "px-4 py-4"}`}>
+
+            {/* ── NEW: PWA Install button — only when browser deems app installable ── */}
+            {installPrompt && !appInstalled && (
+              <button
+                onClick={handleInstall}
+                title={desktopCollapsed ? "Install App" : undefined}
+                className={`
+                  w-full flex items-center rounded-xl text-sm font-medium min-h-[44px] transition-colors mb-1
+                  ${desktopCollapsed ? "justify-center px-0 py-3" : "gap-2.5 px-3 py-2.5"}
+                `}
+                style={{ background: "var(--accent-dim)", color: "var(--accent)", border: "1px solid var(--accent)" }}
+              >
+                <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                </svg>
+                {!desktopCollapsed && <span>Install App</span>}
+              </button>
+            )}
+
             <button
               onClick={() => setShowSignOutConfirm(true)}
               title={desktopCollapsed ? "Sign out" : undefined}
