@@ -2,9 +2,11 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
+import { TwoFactorSetup } from "@/components/TwoFactorSetup";
 
 type Division = { id: string; name: string };
-type Unit = { id: string; name: string; division_id: string };
+type Unit      = { id: string; name: string; division_id: string };
+type MFAFactor = { id: string; status: string; factor_type: string; friendly_name?: string };
 
 const ROLE_LABELS: Record<string, string> = {
   admin:                "Admin",
@@ -24,21 +26,34 @@ const ROLE_COLORS: Record<string, string> = {
   staff:                "bg-slate-400",
 };
 
+// Roles that should see 2FA setup
+const MFA_ROLES = ["admin", "corporate_approver"];
+
 export default function ProfilePage() {
   const { profile, user } = useAuth();
-  const [divisions, setDivisions] = useState<Division[]>([]);
-  const [units, setUnits] = useState<Unit[]>([]);
-  const [fullName, setFullName] = useState("");
-  const [positionTitle, setPositionTitle] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [divisions,    setDivisions]    = useState<Division[]>([]);
+  const [units,        setUnits]        = useState<Unit[]>([]);
+  const [fullName,     setFullName]     = useState("");
+  const [positionTitle,setPositionTitle]= useState("");
+  const [saving,       setSaving]       = useState(false);
+  const [saved,        setSaved]        = useState(false);
 
-  const [newPassword, setNewPassword] = useState("");
+  const [newPassword,     setNewPassword]     = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [pwSaving, setPwSaving] = useState(false);
-  const [pwError, setPwError] = useState<string | null>(null);
-  const [pwSuccess, setPwSuccess] = useState(false);
-  const [showPw, setShowPw] = useState(false);
+  const [pwSaving,        setPwSaving]        = useState(false);
+  const [pwError,         setPwError]         = useState<string | null>(null);
+  const [pwSuccess,       setPwSuccess]       = useState(false);
+  const [showPw,          setShowPw]          = useState(false);
+
+  // MFA factors
+  const [factors,     setFactors]     = useState<MFAFactor[]>([]);
+  const [factorsLoaded, setFactorsLoaded] = useState(false);
+
+  const loadFactors = async () => {
+    const { data } = await supabase.auth.mfa.listFactors();
+    setFactors([...(data?.totp ?? []), ...(data?.phone ?? [])] as MFAFactor[]);
+    setFactorsLoaded(true);
+  };
 
   useEffect(() => {
     if (!profile) return;
@@ -53,21 +68,20 @@ export default function ProfilePage() {
       setDivisions((d as Division[]) || []);
       setUnits((u as Unit[]) || []);
     })();
+
+    if (MFA_ROLES.includes(profile.system_role)) loadFactors();
   }, [profile]);
 
   const saveProfile = async () => {
     if (!user?.id || !fullName.trim()) return;
     setSaving(true);
     try {
-      await supabase
-        .from("profiles")
+      await supabase.from("profiles")
         .update({ full_name: fullName.trim(), position_title: positionTitle.trim() || null })
         .eq("user_id", user.id);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   };
 
   const changePassword = async () => {
@@ -80,9 +94,7 @@ export default function ProfilePage() {
       setPwSuccess(true);
       setNewPassword(""); setConfirmPassword("");
       setTimeout(() => setPwSuccess(false), 3000);
-    } finally {
-      setPwSaving(false);
-    }
+    } finally { setPwSaving(false); }
   };
 
   if (!profile) {
@@ -94,38 +106,31 @@ export default function ProfilePage() {
     );
   }
 
-  const initials  = profile.full_name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
+  const initials  = profile.full_name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
   const roleColor = ROLE_COLORS[profile.system_role] ?? "bg-slate-400";
   const roleLabel = ROLE_LABELS[profile.system_role] ?? profile.system_role;
-  const division  = divisions.find((d) => d.id === profile.division_id);
-  const unit      = units.find((u) => u.id === profile.unit_id);
+  const division  = divisions.find(d => d.id === profile.division_id);
+  const unit      = units.find(u => u.id === profile.unit_id);
 
-  const pwStrength = newPassword.length === 0 ? 0 : newPassword.length < 8 ? 1 : newPassword.length < 12 ? 2 : 3;
+  const pwStrength      = newPassword.length === 0 ? 0 : newPassword.length < 8 ? 1 : newPassword.length < 12 ? 2 : 3;
   const pwStrengthLabel = ["", "Weak", "OK", "Strong"][pwStrength];
   const pwStrengthColor = ["", "var(--status-error-fg)", "var(--status-warning-fg)", "var(--status-success-fg)"][pwStrength];
+
+  const show2FA = MFA_ROLES.includes(profile.system_role) && factorsLoaded;
 
   return (
     <div className="space-y-4 max-w-xl">
 
       {/* ── Avatar + role ────────────────────────────────────── */}
-      <div
-        className="card"
-        style={{ padding: "20px 24px" }}
-      >
+      <div className="card" style={{ padding: "20px 24px" }}>
         <div className="flex items-center gap-4">
-          <div
-            className={`w-16 h-16 rounded-2xl ${roleColor} flex items-center justify-center text-white text-xl font-bold shrink-0`}
-          >
+          <div className={`w-16 h-16 rounded-2xl ${roleColor} flex items-center justify-center text-white text-xl font-bold shrink-0`}>
             {initials}
           </div>
           <div className="min-w-0 flex-1">
-            <h2 className="text-lg font-bold truncate" style={{ color: "var(--text)" }}>
-              {profile.full_name}
-            </h2>
-            <p className="text-sm mt-0.5" style={{ color: "var(--text-3)" }}>{roleLabel}</p>
-            <p className="text-xs mt-0.5 truncate" style={{ color: "var(--text-dim)" }}>
-              {user?.email}
-            </p>
+            <h2 className="text-lg font-bold truncate" style={{ color: "var(--text)" }}>{profile.full_name}</h2>
+            <p className="text-sm mt-0.5" style={{ color: "var(--text-muted)" }}>{roleLabel}</p>
+            <p className="text-xs mt-0.5 truncate" style={{ color: "var(--text-dim)" }}>{user?.email}</p>
           </div>
         </div>
       </div>
@@ -135,9 +140,7 @@ export default function ProfilePage() {
         <div className="card-header">
           <div>
             <h3 className="card-title">Organisation</h3>
-            <p className="text-xs mt-0.5" style={{ color: "var(--text-dim)" }}>
-              Managed by your administrator
-            </p>
+            <p className="text-xs mt-0.5" style={{ color: "var(--text-dim)" }}>Managed by your administrator</p>
           </div>
         </div>
         <div className="card-body">
@@ -149,12 +152,7 @@ export default function ProfilePage() {
             ].map(({ label, value }) => (
               <div key={label} className="flex items-center justify-between gap-4">
                 <dt className="text-sm shrink-0" style={{ color: "var(--text-dim)" }}>{label}</dt>
-                <dd
-                  className="text-sm font-medium text-right truncate"
-                  style={{ color: "var(--text)" }}
-                >
-                  {value}
-                </dd>
+                <dd className="text-sm font-medium text-right truncate" style={{ color: "var(--text)" }}>{value}</dd>
               </div>
             ))}
           </dl>
@@ -163,41 +161,19 @@ export default function ProfilePage() {
 
       {/* ── Edit profile ─────────────────────────────────────── */}
       <div className="card">
-        <div className="card-header">
-          <h3 className="card-title">Edit Profile</h3>
-        </div>
+        <div className="card-header"><h3 className="card-title">Edit Profile</h3></div>
         <div className="card-body space-y-4">
           <div>
             <label className="form-label">Full Name</label>
-            <input
-              className="tms-input"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Your full name"
-            />
+            <input className="tms-input" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Your full name" />
           </div>
           <div>
             <label className="form-label">Position Title</label>
-            <input
-              className="tms-input"
-              value={positionTitle}
-              onChange={(e) => setPositionTitle(e.target.value)}
-              placeholder="e.g. Senior Officer"
-            />
+            <input className="tms-input" value={positionTitle} onChange={e => setPositionTitle(e.target.value)} placeholder="e.g. Senior Officer" />
           </div>
-
-          {saved && (
-            <div className="alert alert-success">
-              ✓ Profile saved successfully.
-            </div>
-          )}
-
+          {saved && <div className="alert alert-success">✓ Profile saved successfully.</div>}
           <div className="flex justify-end">
-            <button
-              onClick={saveProfile}
-              disabled={saving || !fullName.trim()}
-              className="btn btn-primary"
-            >
+            <button onClick={saveProfile} disabled={saving || !fullName.trim()} className="btn btn-primary">
               {saving ? "Saving…" : "Save Changes"}
             </button>
           </div>
@@ -208,70 +184,44 @@ export default function ProfilePage() {
       <div className="card">
         <div className="card-header">
           <h3 className="card-title">Change Password</h3>
-          <button
-            onClick={() => setShowPw((v) => !v)}
-            className="btn btn-ghost btn-sm"
-          >
+          <button onClick={() => setShowPw(v => !v)} className="btn btn-ghost btn-sm">
             {showPw ? "Hide" : "Show"}
           </button>
         </div>
-
         {showPw && (
           <div className="card-body space-y-4">
             <div>
               <label className="form-label">New Password</label>
-              <input
-                type="password"
-                className="tms-input"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Minimum 8 characters"
-              />
-              {/* Strength bar */}
+              <input type="password" className="tms-input" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Minimum 8 characters" />
               {newPassword.length > 0 && (
                 <div className="flex items-center gap-2 mt-2">
-                  {[1, 2, 3].map((lvl) => (
-                    <div
-                      key={lvl}
-                      className="h-1 flex-1 rounded-full transition-all duration-300"
-                      style={{
-                        background: pwStrength >= lvl ? pwStrengthColor : "var(--border)",
-                      }}
-                    />
+                  {[1,2,3].map(lvl => (
+                    <div key={lvl} className="h-1 flex-1 rounded-full transition-all"
+                      style={{ background: pwStrength >= lvl ? pwStrengthColor : "var(--border)" }} />
                   ))}
-                  <span className="text-xs ml-1" style={{ color: pwStrengthColor }}>
-                    {pwStrengthLabel}
-                  </span>
+                  <span className="text-xs ml-1" style={{ color: pwStrengthColor }}>{pwStrengthLabel}</span>
                 </div>
               )}
             </div>
-
             <div>
               <label className="form-label">Confirm Password</label>
-              <input
-                type="password"
-                className="tms-input"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Repeat new password"
-              />
+              <input type="password" className="tms-input" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Repeat new password" />
             </div>
-
             {pwError   && <div className="alert alert-error">{pwError}</div>}
             {pwSuccess && <div className="alert alert-success">✓ Password updated successfully.</div>}
-
             <div className="flex justify-end">
-              <button
-                onClick={changePassword}
-                disabled={pwSaving || !newPassword || !confirmPassword}
-                className="btn btn-primary"
-              >
+              <button onClick={changePassword} disabled={pwSaving || !newPassword || !confirmPassword} className="btn btn-primary">
                 {pwSaving ? "Updating…" : "Update Password"}
               </button>
             </div>
           </div>
         )}
       </div>
+
+      {/* ── Two-Factor Authentication (admin + corporate_approver only) ── */}
+      {show2FA && (
+        <TwoFactorSetup factors={factors} onRefresh={loadFactors} />
+      )}
 
     </div>
   );

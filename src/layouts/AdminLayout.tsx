@@ -9,23 +9,30 @@ import DivisionManagement from "@/modules/divisions/pages/DivisionManagement";
 import MaintenanceHistory from "@/modules/maintenance/pages/MaintenanceHistory";
 import AdminUserManagement from "@/modules/users/pages/AdminUserManagement";
 import FuelMileageLog from "@/modules/fuel/pages/FuelMileageLog";
+import LicenceManagement from "@/pages/admin/LicenceManagement";
+import SecurityLogs from "@/pages/admin/SecurityLogs";
+import SupplierPortal from "@/pages/admin/SupplierPortal";
 import ProfilePage from "@/pages/profile/ProfilePage";
+import { LicenceGate } from "@/components/LicenceGate";
 
 export default function AdminLayout() {
   return (
     <AppShell
       title="Admin"
       navItems={[
-        { label: "Reports",            element: <ReportsDashboard /> },
-        { label: "All Bookings",       element: <BookingsTable /> },
-        { label: "Users",              element: <AdminUserManagement /> },
-        { label: "Maintenance History", element: <MaintenanceHistory /> },
-        { label: "Fuel Mileage Log",   element: <FuelMileageLog /> },
-        { label: "Vehicles",           element: <VehicleManagement /> },
-        { label: "Drivers",            element: <DriverManagement /> },
-        { label: "Divisions & Units",  element: <DivisionManagement /> },
-        { label: "Audit Logs",         element: <AuditLogs /> },
-        { label: "Profile",            element: <ProfilePage /> },
+        { label: "Reports",             element: <LicenceGate feature="reports"><ReportsDashboard /></LicenceGate> },
+        { label: "All Bookings",        element: <LicenceGate feature="bookings"><BookingsTable /></LicenceGate> },
+        { label: "Users",               element: <LicenceGate feature="users"><AdminUserManagement /></LicenceGate> },
+        { label: "Maintenance History", element: <LicenceGate feature="maintenance"><MaintenanceHistory /></LicenceGate> },
+        { label: "Fuel Mileage Log",    element: <LicenceGate feature="fuel"><FuelMileageLog /></LicenceGate> },
+        { label: "Vehicles",            element: <LicenceGate feature="fleet"><VehicleManagement /></LicenceGate> },
+        { label: "Drivers",             element: <LicenceGate feature="fleet"><DriverManagement /></LicenceGate> },
+        { label: "Divisions & Units",   element: <LicenceGate feature="divisions"><DivisionManagement /></LicenceGate> },
+        { label: "Audit Logs",          element: <LicenceGate feature="audit"><AuditLogs /></LicenceGate> },
+        { label: "Security Logs",       element: <SecurityLogs /> },
+        { label: "Licence",             element: <LicenceManagement /> },
+        { label: "Supplier Portal",     element: <SupplierPortal /> },
+        { label: "Profile",             element: <ProfilePage /> },
       ]}
     />
   );
