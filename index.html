@@ -5,45 +5,55 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TMS — Transport Management System</title>
 
-    <!-- PWA Manifest -->
+    <!-- ── PWA manifest ── -->
     <link rel="manifest" href="/manifest.json" />
-
-    <!-- Theme color (matches --accent) -->
     <meta name="theme-color" content="#2563eb" />
-    <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)" />
+    <meta name="mobile-web-app-capable" content="yes" />
 
-    <!-- iOS / Safari PWA support -->
+    <!-- ── Apple PWA meta tags ── -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="TMS Portal" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
-    <!-- Favicon -->
-    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+    <!-- ── Favicon ── -->
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
 
-    <!-- Description -->
-    <meta name="description" content="Transport Management System — Internal Portal" />
-    <meta name="mobile-web-app-capable" content="yes" />
+    <!--
+      ── Theme pre-apply script ──────────────────────────────────────────────
+      Runs BEFORE React renders to prevent flash of wrong theme.
+      Reads localStorage("tms-theme") first, then system preference.
+      MUST be inline here — do not move to an external file.
+    -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("tms-theme");
+          var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var dark = saved === "dark" || (!saved && prefersDark);
+          if (dark) document.documentElement.classList.add("dark");
+        } catch (e) {}
+      })();
+    </script>
+
+    <!--
+      ── Service Worker registration ─────────────────────────────────────────
+      Inline here so it registers as early as possible.
+    -->
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", function () {
+          navigator.serviceWorker.register("/sw.js").then(function (reg) {
+            console.log("[TMS] SW registered:", reg.scope);
+          }).catch(function (err) {
+            console.warn("[TMS] SW registration failed:", err);
+          });
+        });
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-
-    <!-- Service Worker Registration -->
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker
-            .register('/sw.js', { scope: '/' })
-            .then((reg) => {
-              console.log('[TMS] Service Worker registered:', reg.scope);
-              // Check for updates periodically
-              setInterval(() => reg.update(), 60 * 60 * 1000);
-            })
-            .catch((err) => console.warn('[TMS] SW registration failed:', err));
-        });
-      }
-    </script>
   </body>
 </html>
