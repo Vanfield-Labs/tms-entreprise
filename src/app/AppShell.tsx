@@ -3,6 +3,7 @@ import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/context/ThemeContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { PushNotificationSetup } from "@/components/PushNotificationSetup";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ClickNavItem   = { label: string; icon?: ReactNode; badge?: number; onClick: () => void };
@@ -621,39 +622,82 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
         {/* ══════════════════════════════════════════════════════
             MAIN CONTENT
         ══════════════════════════════════════════════════════ */}
-        <main className="flex-1 min-w-0 bg-[color:var(--bg)]" style={{ display: "flex", flexDirection: "column" }}>
-
+              <main
+          className="flex-1 min-w-0 bg-[color:var(--bg)]"
+          style={{ display: "flex", flexDirection: "column" }}
+        >
           {/* Desktop sticky header */}
-          <div className="hidden lg:flex items-center justify-between px-8 py-4
+          <div
+            className="hidden lg:flex items-center justify-between px-8 py-4
             border-b border-[color:var(--border)] bg-[color:var(--surface)] shrink-0"
-            style={{ zIndex: 20 }}>
-            <h1 className="text-base font-bold text-[color:var(--text)] tracking-tight">{activeLabel}</h1>
+            style={{ zIndex: 20 }}
+          >
+            <h1 className="text-base font-bold text-[color:var(--text)] tracking-tight">
+              {activeLabel}
+            </h1>
             <div className="flex items-center gap-2">
               <ThemeToggle />
-              {userId && <NotificationBell userId={userId} onNavigate={navigateByEntity} />}
+              {userId && (
+                <NotificationBell userId={userId} onNavigate={navigateByEntity} />
+              )}
               {profile && (
-                <button onClick={() => hasProfile ? go(items.length - 1) : undefined}
+                <button
+                  onClick={() => (hasProfile ? go(items.length - 1) : undefined)}
                   title="View profile"
                   className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border transition-all group
-                    ${isProfileActive ? "bg-[color:var(--surface-2)] border-[color:var(--border-bright)]" : "border-[color:var(--border)] hover:bg-[color:var(--surface-2)] hover:border-[color:var(--border-bright)]"}`}>
-                  <div className={`w-7 h-7 rounded-full ${roleColor} flex items-center justify-center text-white text-[10px] font-bold shrink-0`}>
+                    ${
+                      isProfileActive
+                        ? "bg-[color:var(--surface-2)] border-[color:var(--border-bright)]"
+                        : "border-[color:var(--border)] hover:bg-[color:var(--surface-2)] hover:border-[color:var(--border-bright)]"
+                    }`}
+                >
+                  <div
+                    className={`w-7 h-7 rounded-full ${roleColor} flex items-center justify-center text-white text-[10px] font-bold shrink-0`}
+                  >
                     {initials}
                   </div>
                   <div className="text-left min-w-0">
-                    <p className="text-xs font-semibold truncate max-w-[140px]" style={{ color: "var(--text)" }}>{profile.full_name}</p>
-                    <p className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>{profile.position_title ?? roleLabel}</p>
+                    <p
+                      className="text-xs font-semibold truncate max-w-[140px]"
+                      style={{ color: "var(--text)" }}
+                    >
+                      {profile.full_name}
+                    </p>
+                    <p
+                      className="text-[10px] truncate"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      {profile.position_title ?? roleLabel}
+                    </p>
                   </div>
-                  <svg width="12" height="12" fill="none" viewBox="0 0 12 12" className="shrink-0 ml-0.5"
-                    style={{ color: "var(--text-dim)" }}>
-                    <path d="M4.5 3l3 3-3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <svg
+                    width="12"
+                    height="12"
+                    fill="none"
+                    viewBox="0 0 12 12"
+                    className="shrink-0 ml-0.5"
+                    style={{ color: "var(--text-dim)" }}
+                  >
+                    <path
+                      d="M4.5 3l3 3-3 3"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
                   </svg>
                 </button>
               )}
             </div>
           </div>
 
+          <PushNotificationSetup />
+
           {/* Scrollable content */}
-          <div id="page-scroll" style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+          <div
+            id="page-scroll"
+            style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}
+          >
             <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto w-full">
               <ErrorBoundary>
                 {activeItem && isElementItem(activeItem) ? activeItem.element : children}
