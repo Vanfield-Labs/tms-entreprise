@@ -7,14 +7,18 @@ import { ToastProvider } from "@/components/ErrorToast";
 import App from "./App";
 import "./index.css";
 
+import { StrictMode } from "react";
+
 createRoot(document.getElementById("root")!).render(
-  <BrowserRouter>
-    <ThemeProvider>
-      <LicenceProvider>
-        <ToastProvider>
-          <App />
-        </ToastProvider>
-      </LicenceProvider>
-    </ThemeProvider>
-  </BrowserRouter>
+  <StrictMode>
+    <BrowserRouter>
+      <ThemeProvider>
+        <LicenceProvider>
+          <ToastProvider>
+            <App />
+          </ToastProvider>
+        </LicenceProvider>
+      </ThemeProvider>
+    </BrowserRouter>
+  </StrictMode>
 );

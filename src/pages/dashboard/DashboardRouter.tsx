@@ -10,6 +10,7 @@ import CameraLayout       from "@/layouts/CameraLayout";
 import JoyNewsLayout      from "@/layouts/JoyNewsLayout";
 import AdomTvLayout       from "@/layouts/AdomTvLayout";
 import JoyBusinessLayout  from "@/layouts/JoyBusinessLayout";
+import { useNavigate } from "react-router-dom";
 
 // Unit IDs for specialist layouts
 const CAMERA_UNIT_ID      = "252e08c0-0999-4afe-9eff-a15365bd4d47";
@@ -20,10 +21,12 @@ const JOY_BUSINESS_UNIT_ID = "0dc91872-e758-4392-9ef5-34e6434188e1";
 const SLOW_THRESHOLD_MS  = 4000;  // show "slow" message after 4s
 const TIMEOUT_MS         = 12000; // redirect to login after 12s
 
+
 export default function DashboardRouter() {
   const { profile, loading, user } = useAuth();
   const [elapsed,  setElapsed]  = useState(0);
   const [timedOut, setTimedOut] = useState(false);
+  const navigate = useNavigate();
 
   // Tick every second to show elapsed time feedback
   useEffect(() => {
@@ -39,8 +42,10 @@ export default function DashboardRouter() {
   }, []);
 
   useEffect(() => {
-    if (!loading && !user) window.location.href = "/login";
-  }, [loading, user]);
+  if (!loading && !user) {
+    navigate("/login", { replace: true });
+  }
+}, [loading, user, navigate]);
 
   if (timedOut && loading) {
     // Show a helpful stuck screen instead of just redirecting

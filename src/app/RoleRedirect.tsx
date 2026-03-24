@@ -1,6 +1,7 @@
 // src/app/RoleRedirect.tsx
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { supabase } from "@/lib/supabase";
 
 const CAMERA_UNIT_ID       = "252e08c0-0999-4afe-9eff-a15365bd4d47";
 const JOY_NEWS_UNIT_ID     = "f34cb9c1-334a-4503-9e39-06980e6f4d74";
@@ -51,10 +52,9 @@ export default function RoleRedirect() {
           <button
             className="btn btn-ghost"
             onClick={async () => {
-              const { supabase } = await import("@/lib/supabase");
-              await supabase.auth.signOut();
-              window.location.href = "/login";
-            }}
+            await supabase.auth.signOut();
+            window.location.href = "/login";
+          }}
           >
             Back to Login
           </button>

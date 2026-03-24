@@ -25,7 +25,7 @@ export const routes: RouteObject[] = [
   {
     element: <ProtectedLayout />,
     children: [
-      { path: "/",                       element: <RoleRedirect /> },
+      { index: true, element: <RoleRedirect /> },
       { path: "/dashboard/admin",        element: <AdminLayout /> },
       { path: "/dashboard/corporate",    element: <CorporateLayout /> },
       { path: "/dashboard/transport",    element: <TransportLayout /> },

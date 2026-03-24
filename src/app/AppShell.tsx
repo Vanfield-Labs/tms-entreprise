@@ -4,6 +4,17 @@ import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/context/ThemeContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PushNotificationSetup } from "@/components/PushNotificationSetup";
+import { useAuth } from "@/hooks/useAuth";
+
+const ENTITY_ICON: Record<string, string> = {
+  booking: "📅",
+  fuel: "⛽",
+  maintenance: "🛠",
+  incident: "⚠️",
+  trip: "🚗",
+  approval: "✅",
+  default: "🔔",
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ClickNavItem   = { label: string; icon?: ReactNode; badge?: number; onClick: () => void };
@@ -80,30 +91,55 @@ function timeAgo(iso: string) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function NotificationBell({ userId, onNavigate }: { userId: string; onNavigate: (entityType: string) => void }) {
+function NotificationBell({ currentUserId, onNavigate }: { currentUserId: string; onNavigate: (entityType: string) => void }) {
   const [notifs, setNotifs] = useState<NotifRow[]>([]);
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const load = async () => {
-    const { data } = await supabase
-      .from("notifications")
-      .select("id,title,body,is_read,created_at,entity_type,entity_id")
-      .eq("recipient_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(30);
-    setNotifs((data as NotifRow[]) || []);
-  };
+  if (!currentUserId) {
+    setNotifs([]);
+    return;
+  }
 
-  useEffect(() => { load(); }, [userId]);
+  const { data } = await supabase
+    .from("notifications")
+    .select("id,title,body,is_read,created_at,entity_type,entity_id")
+    .eq("recipient_id", currentUserId)
+    .order("created_at", { ascending: false })
+    .limit(30);
+
+  setNotifs((data as NotifRow[]) || []);
+};
+
+  useEffect(() => { load(); }, [currentUserId]);
 
   useEffect(() => {
-    if (!userId) return;
-    const ch = supabase.channel(`notifs-${userId}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `recipient_id=eq.${userId}` }, () => load())
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [userId]);
+  if (!currentUserId) {
+    setNotifs([]);
+    return;
+  }
+
+  load();
+
+  const ch = supabase
+    .channel(`notif:${currentUserId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "notifications",
+        filter: `recipient_id=eq.${currentUserId}`,
+      },
+      () => load()
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(ch);
+  };
+}, [currentUserId]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -123,20 +159,27 @@ function NotificationBell({ userId, onNavigate }: { userId: string; onNavigate: 
   };
 
   const markAllRead = async () => {
-    await supabase.from("notifications").update({ is_read: true, read_at: new Date().toISOString() })
-      .eq("recipient_id", userId).eq("is_read", false);
-    setNotifs(n => n.map(x => ({ ...x, is_read: true })));
-  };
+  if (!currentUserId) return;
+
+  await supabase
+    .from("notifications")
+    .update({ is_read: true, read_at: new Date().toISOString() })
+    .eq("recipient_id", currentUserId)
+    .eq("is_read", false);
+
+  setNotifs(n => n.map(x => ({ ...x, is_read: true })));
+};
 
   const clearAll = async () => {
-    await supabase.from("notifications").delete().eq("recipient_id", userId);
-    setNotifs([]);
-  };
+  if (!currentUserId) return;
 
-  const ENTITY_ICON: Record<string, string> = {
-    booking: "📋", fuel_request: "⛽", maintenance: "🔧", incident: "🚨", user: "👤",
-    news_assignment: "📰", camera_deployment: "📷", camera_pickup: "🚗",
-  };
+  await supabase
+    .from("notifications")
+    .delete()
+    .eq("recipient_id", currentUserId);
+
+  setNotifs([]);
+};
 
   return (
     <div className="relative" ref={panelRef}>
@@ -187,7 +230,7 @@ function NotificationBell({ userId, onNavigate }: { userId: string; onNavigate: 
                     style={{ background: n.is_read ? "transparent" : "color-mix(in srgb, var(--accent-dim) 30%, transparent)" }}
                   >
                     <div className="flex items-start gap-3">
-                      <span className="text-lg shrink-0 mt-0.5">{ENTITY_ICON[n.entity_type ?? ""] ?? "🔔"}</span>
+                      <span className="text-lg shrink-0 mt-0.5">{ENTITY_ICON[n.entity_type ?? "default"] ?? ENTITY_ICON.default}</span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2">
                           <p className="text-xs font-semibold truncate" style={{ color: "var(--text)" }}>{n.title}</p>
@@ -238,15 +281,15 @@ function ConfirmDialog({
 
 // ─── AppShell ─────────────────────────────────────────────────────────────────
 export default function AppShell({ title, nav, navItems, children }: Props) {
-  const { theme, toggleTheme } = useTheme();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [desktopCollapsed, setDesktopCollapsed] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [profile, setProfile] = useState<{ full_name: string; system_role: string; unit_id: string | null; position_title: string | null } | null>(null);
-  const [unitName, setUnitName] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string>("");
-  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
-  const [navBadges, setNavBadges] = useState<Record<string, number>>({});
+const { theme, toggleTheme } = useTheme();
+const { user, profile } = useAuth();
+const [sidebarOpen, setSidebarOpen] = useState(false);
+const [desktopCollapsed, setDesktopCollapsed] = useState(false);
+const [activeIndex, setActiveIndex] = useState(0);
+const [unitName, setUnitName] = useState<string | null>(null);
+
+const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
+const [navBadges, setNavBadges] = useState<Record<string, number>>({});
 
   // ── NEW: PWA install prompt ───────────────────────────────────────────────
   const [installPrompt, setInstallPrompt] = useState<any>(null);
@@ -334,52 +377,85 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
     window.location.href = "/login";
   };
 
-  useEffect(() => {
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      setUserId(user.id);
-      const { data: p } = await supabase
-        .from("profiles").select("full_name,system_role,unit_id,position_title")
-        .eq("user_id", user.id).single();
-      if (!p) return;
-      setProfile(p as any);
-      if ((p as any).unit_id) {
-        const { data: u } = await supabase.from("units").select("name").eq("id", (p as any).unit_id).single();
-        if (u) setUnitName((u as any).name);
-      }
-    })();
-  }, []);
 
-  useEffect(() => {
-    if (!profile) return;
-    const role = profile.system_role;
-    const badges: Record<string, number> = {};
-    const promises: Promise<void>[] = [];
+useEffect(() => {
+  let cancelled = false;
 
-    const qCount = async (label: string, table: string, filter: Record<string, string>) => {
-      let q = supabase.from(table).select("id", { count: "exact", head: true });
-      for (const [col, val] of Object.entries(filter)) q = q.eq(col, val);
-      const { count } = await q;
-      if (count && count > 0) badges[label] = count;
+  const loadUnitName = async () => {
+    if (!profile?.unit_id) {
+      setUnitName(null);
+      return;
+    }
+
+    const { data: u } = await supabase
+      .from("units")
+      .select("name")
+      .eq("id", profile.unit_id)
+      .single();
+
+    if (!cancelled) {
+      setUnitName((u as { name?: string } | null)?.name ?? null);
+    }
+  };
+
+  loadUnitName();
+
+  return () => {
+    cancelled = true;
+  };
+}, [profile?.unit_id]);
+
+useEffect(() => {
+  let cancelled = false;
+
+  if (!profile?.system_role) {
+    setNavBadges({});
+    return () => {
+      cancelled = true;
     };
+  }
 
-    if (role === "corporate_approver" || role === "admin") {
-      promises.push(qCount("Booking Approvals", "bookings", { status: "submitted" }));
-      promises.push(qCount("Fuel Approvals", "fuel_requests", { status: "submitted" }));
-      promises.push(qCount("Maintenance Approvals", "maintenance_requests", { status: "reported" }));
-    }
-    if (role === "transport_supervisor" || role === "admin") {
-      promises.push(qCount("Dispatch", "bookings", { status: "approved" }));
-      promises.push(qCount("Record Fuel", "fuel_requests", { status: "approved" }));
-      promises.push(qCount("Close Trips", "bookings", { status: "completed" }));
-    }
-    if (role === "admin") {
-      promises.push(qCount("Users", "user_requests", { status: "pending" }));
-    }
+  const role = profile.system_role;
+  const badges: Record<string, number> = {};
+  const promises: Promise<void>[] = [];
 
-    Promise.all(promises).then(() => setNavBadges({ ...badges }));
-  }, [profile]);
+  const qCount = async (label: string, table: string, filter: Record<string, string>) => {
+    let q = supabase.from(table).select("id", { count: "exact", head: true });
+    for (const [col, val] of Object.entries(filter)) {
+      q = q.eq(col, val);
+    }
+    const { count } = await q;
+    if (count && count > 0) {
+      badges[label] = count;
+    }
+  };
+
+  if (role === "corporate_approver" || role === "admin") {
+    promises.push(qCount("Booking Approvals", "bookings", { status: "submitted" }));
+    promises.push(qCount("Fuel Approvals", "fuel_requests", { status: "submitted" }));
+    promises.push(qCount("Maintenance Approvals", "maintenance_requests", { status: "reported" }));
+  }
+
+  if (role === "transport_supervisor" || role === "admin") {
+    promises.push(qCount("Dispatch", "bookings", { status: "approved" }));
+    promises.push(qCount("Record Fuel", "fuel_requests", { status: "approved" }));
+    promises.push(qCount("Close Trips", "bookings", { status: "completed" }));
+  }
+
+  if (role === "admin") {
+    promises.push(qCount("Users", "user_requests", { status: "pending" }));
+  }
+
+  Promise.all(promises).then(() => {
+    if (!cancelled) {
+      setNavBadges({ ...badges });
+    }
+  });
+
+  return () => {
+    cancelled = true;
+  };
+}, [profile?.system_role]);
 
   const navigateByEntity = (entityType: string) => {
     const entityToLabel: Record<string, string> = {
@@ -403,7 +479,9 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
   const initials = profile?.full_name
     ? profile.full_name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()
     : "?";
-  const logoSubtitle = unitName ?? roleLabel;
+
+  const logoSubtitle = unitName || roleLabel || "TRANSPORT MANAGEMENT";
+  const currentUserId = user?.id ?? "";
 
   const ThemeToggle = () => (
     <button onClick={toggleTheme}
@@ -459,10 +537,10 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
           </svg>
         </button>
-        <span className="text-sm font-semibold text-[color:var(--text)] truncate px-3">{activeLabel}</span>
-        <div className="flex items-center gap-1 shrink-0">
+        <span className="text-sm font-semibold text-[color:var(--text)] truncate px-3 text-center">{activeLabel}</span>
+        <div className="flex items-center gap-1.5 shrink-0">
           <ThemeToggle />
-          {userId && <NotificationBell userId={userId} onNavigate={navigateByEntity} />}
+          {currentUserId && <NotificationBell currentUserId={currentUserId} onNavigate={navigateByEntity} />}
           {profile && (
             <button onClick={() => hasProfile ? go(items.length - 1) : undefined}
               className={`w-8 h-8 rounded-full ${roleColor} flex items-center justify-center text-white text-xs font-bold hover:opacity-80 transition-opacity`}
@@ -534,49 +612,73 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
           </div>
 
           {/* Nav items */}
-          <nav className={`flex-1 overflow-y-auto py-3 space-y-0.5 ${desktopCollapsed ? "px-2" : "px-3"}`}>
+          <nav className={`flex-1 overflow-y-auto py-4 ${desktopCollapsed ? "px-2 space-y-2" : "px-3 space-y-1"}`}>
             {baseItems.map((item, i) => {
               const isActive = i === activeIndex && !isProfileActive;
               const badge = navBadges[item.label] ?? 0;
-              return (
-                <button
-                  key={i}
-                  onClick={() => go(i)}
-                  title={desktopCollapsed ? item.label : undefined}
-                  className={`
-                    w-full flex items-center rounded-xl text-sm font-medium text-left
-                    transition-all min-h-[44px] relative group
-                    ${desktopCollapsed ? "justify-center px-0 py-3" : "gap-3 px-3 py-2.5"}
-                    ${isActive
-                      ? "bg-[color:var(--text)] text-[color:var(--bg)] shadow-sm"
-                      : "text-[color:var(--text-muted)] hover:bg-[color:var(--surface-2)] hover:text-[color:var(--text)]"
-                    }
-                  `}
-                >
-                  <span style={{ color: isActive ? "var(--bg)" : "currentColor" }}>
-                    <NavIcon label={item.label} collapsed={desktopCollapsed} />
-                  </span>
 
-                  {!desktopCollapsed && <span className="flex-1 truncate">{item.label}</span>}
+              const showDivider =
+                i > 0 &&
+                (
+                  item.label.toLowerCase().includes("users") ||
+                  item.label.toLowerCase().includes("audit") ||
+                  item.label.toLowerCase().includes("profile")
+                );
+             return (
+  <>
+    {showDivider && !desktopCollapsed && (
+      <div className="my-2 border-t border-[color:var(--border)] opacity-60" />
+    )}
 
-                  {badge > 0 && !desktopCollapsed && (
-                    <span className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
-                      style={{ background: "var(--red)" }}>
-                      {badge > 99 ? "99+" : badge}
-                    </span>
-                  )}
-                  {badge > 0 && desktopCollapsed && (
-                    <span className="absolute top-1 right-1 w-2 h-2 rounded-full" style={{ background: "var(--red)" }} />
-                  )}
+    <button
+      key={i}
+      onClick={() => go(i)}
+      title={desktopCollapsed ? item.label : undefined}
+      className={`
+        w-full flex items-center rounded-xl text-sm font-medium text-left
+        transition-all min-h-[44px] relative group
+        ${desktopCollapsed ? "justify-center px-0 py-3" : "gap-3 px-3 py-2.5"}
+        ${
+          isActive
+            ? "bg-[color:var(--text)] text-[color:var(--bg)] shadow-sm"
+            : "text-[color:var(--text-muted)] hover:bg-[color:var(--surface-2)] hover:text-[color:var(--text)]"
+        }
+      `}
+    >
+      <span style={{ color: isActive ? "var(--bg)" : "currentColor" }}>
+        <NavIcon label={item.label} collapsed={desktopCollapsed} />
+      </span>
 
-                  {desktopCollapsed && (
-                    <span className="absolute left-full ml-2 px-2 py-1 rounded-lg text-xs font-medium whitespace-nowrap z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
-                      style={{ background: "var(--text)", color: "var(--bg)" }}>
-                      {item.label}{badge > 0 ? ` (${badge})` : ""}
-                    </span>
-                  )}
-                </button>
-              );
+      {!desktopCollapsed && <span className="flex-1 truncate">{item.label}</span>}
+
+      {badge > 0 && !desktopCollapsed && (
+        <span
+          className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+          style={{ background: "var(--red)" }}
+        >
+          {badge > 99 ? "99+" : badge}
+        </span>
+      )}
+
+      {badge > 0 && desktopCollapsed && (
+        <span
+          className="absolute top-1 right-1 w-2 h-2 rounded-full"
+          style={{ background: "var(--red)" }}
+        />
+      )}
+
+      {desktopCollapsed && (
+        <span
+          className="absolute left-full ml-2 px-2 py-1 rounded-lg text-xs font-medium whitespace-nowrap z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+          style={{ background: "var(--text)", color: "var(--bg)" }}
+        >
+          {item.label}
+          {badge > 0 ? ` (${badge})` : ""}
+        </span>
+      )}
+    </button>
+  </>
+);
             })}
           </nav>
 
@@ -628,17 +730,22 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
         >
           {/* Desktop sticky header */}
           <div
-            className="hidden lg:flex items-center justify-between px-8 py-4
+            className="hidden lg:flex items-center justify-between px-8 xl:px-10 py-4
             border-b border-[color:var(--border)] bg-[color:var(--surface)] shrink-0"
             style={{ zIndex: 20 }}
           >
-            <h1 className="text-base font-bold text-[color:var(--text)] tracking-tight">
-              {activeLabel}
-            </h1>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col">
+              <h1 className="text-base font-semibold text-[color:var(--text)] tracking-tight">
+                {activeLabel}
+              </h1>
+              <span className="text-[10px] uppercase tracking-widest text-[color:var(--text-dim)]">
+                {title}
+              </span>
+            </div>
+            <div className="flex items-center gap-2.5">
               <ThemeToggle />
-              {userId && (
-                <NotificationBell userId={userId} onNavigate={navigateByEntity} />
+              {currentUserId && (
+                <NotificationBell currentUserId={currentUserId} onNavigate={navigateByEntity} />
               )}
               {profile && (
                 <button
@@ -698,7 +805,7 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
             id="page-scroll"
             style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}
           >
-            <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto w-full">
+            <div className="p-4 sm:p-6 lg:p-8 xl:p-10 max-w-7xl mx-auto w-full">
               <ErrorBoundary>
                 {activeItem && isElementItem(activeItem) ? activeItem.element : children}
               </ErrorBoundary>
