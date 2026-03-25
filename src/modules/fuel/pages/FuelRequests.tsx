@@ -38,6 +38,47 @@ const STATUS_LABEL: Record<FuelStatus, string> = {
 
 type Enriched = FuelRequest & { plate_number?: string; driver_name?: string };
 
+function FuelRequestsSkeleton() {
+  return (
+    <div className="space-y-3 animate-pulse">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div
+          key={i}
+          className="card"
+          style={{ overflow: "hidden" }}
+        >
+          {/* Header */}
+          <div style={{ padding: "12px 16px" }}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="space-y-2">
+                <div className="h-4 w-40 rounded bg-[color:var(--surface-2)]" />
+                <div className="h-3 w-52 rounded bg-[color:var(--surface-2)]" />
+              </div>
+              <div className="h-5 w-16 rounded-full bg-[color:var(--surface-2)]" />
+            </div>
+          </div>
+
+          {/* Expandable body preview */}
+          <div
+            style={{
+              borderTop: "1px solid var(--border)",
+              padding: "12px 16px",
+            }}
+            className="grid grid-cols-2 gap-2"
+          >
+            {Array.from({ length: 6 }).map((_, j) => (
+              <div key={j} className="space-y-1">
+                <div className="h-2 w-16 rounded bg-[color:var(--surface-2)]" />
+                <div className="h-3 w-20 rounded bg-[color:var(--surface-2)]" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function FuelRequests() {
   const [rows,    setRows]    = useState<Enriched[]>([]);
   const [loading, setLoading] = useState(true);
@@ -122,11 +163,9 @@ export default function FuelRequests() {
         ))}
       </div>
 
-      {loading ? (
-        <div className="flex justify-center py-12">
-          <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: "var(--border)", borderTopColor: "var(--accent)" }} />
-        </div>
-      ) : filtered.length === 0 ? (
+    {loading ? (
+  <FuelRequestsSkeleton />
+) : filtered.length === 0 ? (
         <div className="empty-state">
           <div className="empty-state-icon">⛽</div>
           <p>No fuel requests{filter !== "all" ? ` with status "${filter}"` : ""}</p>

@@ -1,7 +1,7 @@
 // src/modules/dispatch/pages/DispatchBoard.tsx
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { PageSpinner, EmptyState, Badge, Card, StatCard, Field, Select, Input, Btn } from "@/components/TmsUI";
+import { EmptyState, Badge, Card, StatCard, Field, Select, Input, Btn } from "@/components/TmsUI";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
 type Booking = {
@@ -40,17 +40,120 @@ type Driver = {
   phone: string | null;
 };
 
-export default function DispatchBoard() {
-  const [bookings,    setBookings]    = useState<Booking[]>([]);
-  const [vehicles,    setVehicles]    = useState<Vehicle[]>([]);
-  const [drivers,     setDrivers]     = useState<Driver[]>([]);
-  const [selVehicle,  setSelVehicle]  = useState<Record<string, string>>({});
-  const [selDriver,   setSelDriver]   = useState<Record<string, string>>({});
-  const [notes,       setNotes]       = useState<Record<string, string>>({});
-  const [dispatching, setDispatching] = useState<Record<string, boolean>>({});
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState<Record<string, string>>({});
+function DispatchBoardSkeleton() {
+  return (
+    <div className="space-y-4 animate-pulse">
+      {/* KPI row */}
+      <div className="grid grid-cols-3 gap-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div
+            key={i}
+            className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4"
+          >
+            <div className="h-3 w-20 rounded bg-[color:var(--surface-2)]" />
+            <div className="mt-3 h-8 w-12 rounded bg-[color:var(--surface-2)]" />
+          </div>
+        ))}
+      </div>
 
+      {/* Booking cards */}
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div
+          key={i}
+          className="overflow-hidden rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)]"
+        >
+          <div
+            className="px-4 py-3 border-b border-[color:var(--border)]"
+            style={{ background: "color-mix(in srgb, var(--green-dim) 35%, var(--surface))" }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="h-4 w-40 rounded bg-[color:var(--surface-2)]" />
+                <div className="mt-2 h-3 w-24 rounded bg-[color:var(--surface-2)]" />
+              </div>
+              <div className="h-6 w-20 rounded-full bg-[color:var(--surface-2)]" />
+            </div>
+          </div>
+
+          <div className="px-4 py-3 border-b border-[color:var(--border)] space-y-3">
+            <div className="h-3 w-24 rounded bg-[color:var(--surface-2)]" />
+            <div className="flex items-start gap-3">
+              <div className="h-9 w-9 rounded-xl bg-[color:var(--surface-2)] shrink-0" />
+              <div className="flex-1 min-w-0 space-y-2">
+                <div className="h-4 w-32 rounded bg-[color:var(--surface-2)]" />
+                <div className="h-3 w-28 rounded bg-[color:var(--surface-2)]" />
+                <div className="h-3 w-40 rounded bg-[color:var(--surface-2)]" />
+              </div>
+            </div>
+            <div className="h-3 w-36 rounded bg-[color:var(--surface-2)]" />
+          </div>
+
+          <div className="px-4 py-3 border-b border-[color:var(--border)] space-y-3">
+            <div className="h-3 w-20 rounded bg-[color:var(--surface-2)]" />
+            <div className="h-3 w-36 rounded bg-[color:var(--surface-2)]" />
+            <div className="space-y-3">
+              <div className="h-4 w-48 rounded bg-[color:var(--surface-2)]" />
+              <div className="h-4 w-52 rounded bg-[color:var(--surface-2)]" />
+            </div>
+            <div className="h-3 w-24 rounded bg-[color:var(--surface-2)]" />
+          </div>
+
+          <div className="p-4 space-y-3">
+            <div className="h-3 w-28 rounded bg-[color:var(--surface-2)]" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <div className="h-3 w-16 rounded bg-[color:var(--surface-2)]" />
+                <div className="h-10 w-full rounded-xl bg-[color:var(--surface-2)]" />
+              </div>
+              <div className="space-y-2">
+                <div className="h-3 w-16 rounded bg-[color:var(--surface-2)]" />
+                <div className="h-10 w-full rounded-xl bg-[color:var(--surface-2)]" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="h-3 w-20 rounded bg-[color:var(--surface-2)]" />
+              <div className="h-10 w-full rounded-xl bg-[color:var(--surface-2)]" />
+            </div>
+            <div className="h-10 w-full rounded-xl bg-[color:var(--surface-2)]" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function DispatchBoard() {
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [selVehicle, setSelVehicle] = useState<Record<string, string>>({});
+  const [selDriver, setSelDriver] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [dispatching, setDispatching] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Record<string, string>>({});
+  const [rtMessage, setRtMessage] = useState<string | null>(null);
+  const [flashIds, setFlashIds] = useState<Record<string, boolean>>({});
+
+
+  function showRealtimeMessage(message: string) {
+    setRtMessage(message);
+    window.clearTimeout((showRealtimeMessage as any)._t);
+    (showRealtimeMessage as any)._t = window.setTimeout(() => {
+      setRtMessage(null);
+    }, 2500);
+  }
+
+  function flashCard(id: string) {
+    setFlashIds(prev => ({ ...prev, [id]: true }));
+    window.setTimeout(() => {
+      setFlashIds(prev => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }, 3000);
+  }
   const load = async () => {
     setLoading(true);
 
@@ -92,10 +195,10 @@ export default function DispatchBoard() {
     }
 
     setDrivers(driverRows.map((d: any) => ({
-      driver_id:      d.id,
+      driver_id: d.id,
       license_number: d.license_number,
-      phone:          d.phone ?? null,
-      full_name:      d.full_name ?? (d.user_id ? (nameMap[d.user_id] ?? `Driver ${d.license_number}`) : `Driver ${d.license_number}`),
+      phone: d.phone ?? null,
+      full_name: d.full_name ?? (d.user_id ? (nameMap[d.user_id] ?? `Driver ${d.license_number}`) : `Driver ${d.license_number}`),
     })));
 
     // ── Resolve requester profiles ─────────────────────────────────────────
@@ -109,23 +212,23 @@ export default function DispatchBoard() {
           .in("user_id", creatorIds);
         const profiles = (profilesRaw as any[]) || [];
 
-        const divIds  = [...new Set(profiles.map((p: any) => p.division_id).filter(Boolean))];
+        const divIds = [...new Set(profiles.map((p: any) => p.division_id).filter(Boolean))];
         const unitIds = [...new Set(profiles.map((p: any) => p.unit_id).filter(Boolean))];
         const [{ data: divsRaw }, { data: unitsRaw }] = await Promise.all([
-          divIds.length  ? supabase.from("divisions").select("id,name").in("id", divIds)  : Promise.resolve({ data: [] }),
-          unitIds.length ? supabase.from("units").select("id,name").in("id", unitIds)      : Promise.resolve({ data: [] }),
+          divIds.length ? supabase.from("divisions").select("id,name").in("id", divIds) : Promise.resolve({ data: [] }),
+          unitIds.length ? supabase.from("units").select("id,name").in("id", unitIds) : Promise.resolve({ data: [] }),
         ]);
-        const divMap  = Object.fromEntries(((divsRaw  as any[]) || []).map((d: any) => [d.id, d.name]));
+        const divMap = Object.fromEntries(((divsRaw as any[]) || []).map((d: any) => [d.id, d.name]));
         const unitMap = Object.fromEntries(((unitsRaw as any[]) || []).map((u: any) => [u.id, u.name]));
         profiles.forEach((p: any) => {
           profileMap[p.user_id] = {
-            name:     p.full_name      ?? "—",
+            name: p.full_name ?? "—",
             position: p.position_title ?? null,
             division: p.division_id ? (divMap[p.division_id] ?? null) : null,
-            unit:     p.unit_id     ? (unitMap[p.unit_id]    ?? null) : null,
+            unit: p.unit_id ? (unitMap[p.unit_id] ?? null) : null,
           };
         });
-      } catch (_) {}
+      } catch (_) { }
     }
 
     setBookings(bookings.map((b: any) => {
@@ -136,11 +239,51 @@ export default function DispatchBoard() {
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+
+    const ch = supabase
+      .channel("dispatch_board_realtime_ui")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "bookings" },
+        async (payload) => {
+          const nextStatus = payload.new && "status" in payload.new ? String(payload.new.status ?? "") : "";
+          const prevStatus = payload.old && "status" in payload.old ? String(payload.old.status ?? "") : "";
+          const bookingId =
+            (payload.new && "id" in payload.new ? String(payload.new.id ?? "") : "") ||
+            (payload.old && "id" in payload.old ? String(payload.old.id ?? "") : "");
+
+          if (payload.eventType === "INSERT" && nextStatus === "approved") {
+            showRealtimeMessage("New dispatch-ready booking");
+            if (bookingId) flashCard(bookingId);
+          } else if (payload.eventType === "UPDATE") {
+            if (nextStatus === "approved" && prevStatus !== "approved") {
+              showRealtimeMessage("Booking approved for dispatch");
+              if (bookingId) flashCard(bookingId);
+            } else if (prevStatus === "approved" && nextStatus !== "approved") {
+              showRealtimeMessage("Booking left dispatch queue");
+            } else if (nextStatus === "approved") {
+              showRealtimeMessage("Dispatch queue updated");
+              if (bookingId) flashCard(bookingId);
+            }
+          } else if (payload.eventType === "DELETE" && prevStatus === "approved") {
+            showRealtimeMessage("Dispatch-ready booking removed");
+          }
+
+          await load();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, []);
 
   const dispatch = async (bookingId: string) => {
     const vehicleId = selVehicle[bookingId];
-    const driverId  = selDriver[bookingId];
+    const driverId = selDriver[bookingId];
     if (!vehicleId || !driverId) return;
     setDispatching(m => ({ ...m, [bookingId]: true }));
     setError(m => ({ ...m, [bookingId]: "" }));
@@ -148,8 +291,8 @@ export default function DispatchBoard() {
       const { error: rpcErr } = await supabase.rpc("dispatch_booking", {
         p_booking_id: bookingId,
         p_vehicle_id: vehicleId,
-        p_driver_id:  driverId,
-        p_notes:      notes[bookingId] || null,
+        p_driver_id: driverId,
+        p_notes: notes[bookingId] || null,
       });
       if (rpcErr) throw rpcErr;
       await load();
@@ -160,37 +303,63 @@ export default function DispatchBoard() {
     }
   };
 
-  if (loading) return <PageSpinner />;
+  if (loading) return <DispatchBoardSkeleton />;
 
   return (
     <div className="space-y-4">
+      {rtMessage && (
+        <div className="fixed top-4 right-4 z-50">
+          <div
+            className="rounded-2xl border px-4 py-3 shadow-lg text-sm"
+            style={{
+              background: "var(--surface)",
+              borderColor: "var(--border)",
+              color: "var(--text)",
+              minWidth: 240,
+            }}
+          >
+            {rtMessage}
+          </div>
+        </div>
+      )}
 
       {/* KPI row */}
       <div className="grid grid-cols-3 gap-3">
         <StatCard label="To Dispatch" value={bookings.length} accent="accent" />
-        <StatCard label="Vehicles"    value={vehicles.length} accent="green"  />
-        <StatCard label="Drivers"     value={drivers.length}  accent="purple" />
+        <StatCard label="Vehicles" value={vehicles.length} accent="green" />
+        <StatCard label="Drivers" value={drivers.length} accent="purple" />
       </div>
 
       {bookings.length === 0 ? (
         <EmptyState
           title="Nothing to dispatch"
           subtitle="No approved bookings awaiting assignment"
-          icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>}
+          icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg>}
         />
       ) : (
         <div className="space-y-4">
           {bookings.map(b => {
-            const ready          = !!(selVehicle[b.id] && selDriver[b.id]);
+            const ready = !!(selVehicle[b.id] && selDriver[b.id]);
             const selectedDriver = drivers.find(d => d.driver_id === selDriver[b.id]);
 
             return (
-              <Card key={b.id}>
+              <Card
+                key={b.id}
+                className={flashIds[b.id] ? "transition-all duration-500" : undefined}
+              >
 
                 {/* ── Header ── */}
                 <div
                   className="px-4 py-3 border-b border-[color:var(--border)]"
-                  style={{ background: "color-mix(in srgb, var(--green-dim) 60%, var(--surface))" }}
+                  style={{
+                    background: flashIds[b.id]
+                      ? "color-mix(in srgb, var(--accent) 10%, color-mix(in srgb, var(--green-dim) 60%, var(--surface)))"
+                      : "color-mix(in srgb, var(--green-dim) 60%, var(--surface))",
+                    boxShadow: flashIds[b.id]
+                      ? "0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent)"
+                      : undefined,
+                    transition: "all 0.4s ease",
+                  }}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
@@ -250,7 +419,7 @@ export default function DispatchBoard() {
                   {/* Date & time */}
                   <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
                     <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
                     <span>
                       <span style={{ fontWeight: 600, color: "var(--text)" }}>{fmtDate(b.trip_date)}</span> at {b.trip_time}

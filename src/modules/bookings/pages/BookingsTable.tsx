@@ -19,17 +19,72 @@ export default function BookingsTable() {
   const [q,       setQ]       = useState("");
   const [status,  setStatus]  = useState("all");
 
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase
-        .from("bookings")
-        .select("id,purpose,trip_date,trip_time,pickup_location,dropoff_location,status,created_at,booking_type")
-        .order("created_at", { ascending: false })
-        .limit(500);
-      setRows((data as Booking[]) || []);
-      setLoading(false);
-    })();
-  }, []);
+ const load = async () => {
+  setLoading(true);
+
+  const { data } = await supabase
+    .from("bookings")
+    .select("id,purpose,trip_date,trip_time,pickup_location,dropoff_location,status,created_at,booking_type")
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  setRows((data as Booking[]) || []);
+  setLoading(false);
+};
+
+const [rtMessage, setRtMessage] = useState<string | null>(null);
+const [flashIds, setFlashIds] = useState<Record<string, boolean>>({});
+function showRealtimeMessage(message: string) {
+  setRtMessage(message);
+  window.clearTimeout((showRealtimeMessage as any)._t);
+  (showRealtimeMessage as any)._t = window.setTimeout(() => {
+    setRtMessage(null);
+  }, 2500);
+}
+
+function flashRow(id: string) {
+  setFlashIds(prev => ({ ...prev, [id]: true }));
+  window.setTimeout(() => {
+    setFlashIds(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }, 3000);
+}
+
+useEffect(() => {
+  load();
+
+  const ch = supabase
+    .channel("bookings_realtime_ui")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "bookings" },
+      async (payload) => {
+        if (payload.eventType === "INSERT") {
+          showRealtimeMessage("New booking received");
+          if (payload.new?.id) flashRow(payload.new.id);
+        }
+
+        if (payload.eventType === "UPDATE") {
+          showRealtimeMessage("Booking updated");
+          if (payload.new?.id) flashRow(payload.new.id);
+        }
+
+        if (payload.eventType === "DELETE") {
+          showRealtimeMessage("Booking removed");
+        }
+
+        await load();
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(ch);
+  };
+}, []);
 
   const filtered = rows.filter(r => {
     const matchQ = !q || [r.purpose, r.pickup_location, r.dropoff_location].join(" ").toLowerCase().includes(q.toLowerCase());
@@ -43,6 +98,21 @@ export default function BookingsTable() {
 
   return (
     <div className="space-y-4">
+      {rtMessage && (
+  <div className="fixed top-4 right-4 z-50">
+    <div
+      className="rounded-2xl border px-4 py-3 shadow-lg text-sm"
+      style={{
+        background: "var(--surface)",
+        borderColor: "var(--border)",
+        color: "var(--text)",
+        minWidth: 220,
+      }}
+    >
+      {rtMessage}
+    </div>
+  </div>
+)}
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="flex-1">
@@ -62,7 +132,19 @@ export default function BookingsTable() {
           {/* Mobile cards */}
           <div className="sm:hidden space-y-3">
             {pg.slice.map(b => (
-              <Card key={b.id}>
+ <Card key={b.id}>
+  <div
+    className="p-4 space-y-2 rounded-[inherit]"
+    style={{
+      transition: "all 0.4s ease",
+      boxShadow: flashIds[b.id]
+        ? "0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent)"
+        : undefined,
+      background: flashIds[b.id]
+        ? "color-mix(in srgb, var(--accent) 8%, var(--surface))"
+        : undefined,
+    }}
+  >
                 <div className="p-4 space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-sm font-semibold text-[color:var(--text)] flex-1">{b.purpose}</p>
@@ -71,6 +153,7 @@ export default function BookingsTable() {
                   <p className="text-xs text-[color:var(--text-muted)]">{fmtDate(b.trip_date)} at {b.trip_time}</p>
                   <p className="text-xs text-[color:var(--text-muted)] truncate">{b.pickup_location} \u2192 {b.dropoff_location}</p>
                   <p className="text-xs text-[color:var(--text-dim)]">{fmtDateTime(b.created_at)}</p>
+                </div>
                 </div>
               </Card>
             ))}
@@ -88,7 +171,15 @@ export default function BookingsTable() {
                 </thead>
                 <tbody>
                   {pg.slice.map(b => (
-                    <tr key={b.id}>
+                    <tr
+  key={b.id}
+  style={{
+    transition: "all 0.4s ease",
+    background: flashIds[b.id]
+      ? "color-mix(in srgb, var(--accent) 8%, transparent)"
+      : undefined,
+  }}
+>
                       <td className="font-medium max-w-[200px] truncate">{b.purpose}</td>
                       <td className="whitespace-nowrap">{fmtDate(b.trip_date)} {b.trip_time}</td>
                       <td className="max-w-[180px]">
