@@ -22,30 +22,43 @@ export default function TransportLayout() {
     <AppShell
       title="Transport"
       navItems={[
-        { label: "Dispatch",        element: <DispatchBoard /> },
-        { label: "Close Trips",     element: <CloseTrips /> },
-        { label: "Assignments",     element: <AllAssignmentsBoard /> },
-        { label: "Driver Schedule", element: <ScheduleManager /> },
-        { label: "Shift Overrides", element: <ShiftAdmin /> },
-        { label: "Maintenance",     element: <MaintenanceBoard /> },
-        { label: "Maint. History",  element: <MaintenanceHistory /> },
-        { label: "Incidents",       element: <IncidentBoard /> },
-        { label: "Record Fuel",     element: <FuelRecordQueue /> },
-        {
-          label: "Fuel Request",
-          element: (
-            <div className="space-y-6">
-              <CreateFuelRequest />
-              <MyFuelRequests />
-            </div>
-          ),
-        },
-        { label: "Vehicles",        element: <VehicleManagement /> },
-        { label: "Mileage Log",     element: <MileageLog /> },
-        { label: "Drivers",         element: <DriverManagement /> },
-        { label: "Reports",         element: <ReportsDashboard /> },
-        { label: "Profile",         element: <ProfilePage /> },
-      ]}
+  // ── Operations ──────────────
+  { label: "Dispatch", element: <DispatchBoard /> },
+  { label: "Close Trips", element: <CloseTrips /> },
+  { label: "Assignments", element: <AllAssignmentsBoard /> },
+
+  // ── Scheduling ──────────────
+  { label: "Driver Schedule", element: <ScheduleManager /> },
+  { label: "Shift Overrides", element: <ShiftAdmin /> },
+
+  // ── Maintenance ─────────────
+  { label: "Maintenance", element: <MaintenanceBoard /> },
+  { label: "Maint. History", element: <MaintenanceHistory /> },
+  { label: "Incidents", element: <IncidentBoard /> },
+
+  // ── Fuel ────────────────────
+  { label: "Record Fuel", element: <FuelRecordQueue /> },
+  {
+    label: "Fuel Request",
+    element: (
+      <div className="space-y-6">
+        <CreateFuelRequest />
+        <MyFuelRequests />
+      </div>
+    ),
+  },
+
+  // ── Fleet ───────────────────
+  { label: "Vehicles", element: <VehicleManagement /> },
+  { label: "Mileage Log", element: <MileageLog /> },
+  { label: "Drivers", element: <DriverManagement /> },
+
+  // ── Insights ────────────────
+  { label: "Reports", element: <ReportsDashboard /> },
+
+  // ── Account ────────────────
+  { label: "Profile", element: <ProfilePage /> },
+]}
     />
   );
 }

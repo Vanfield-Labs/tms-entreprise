@@ -192,12 +192,21 @@ export default function VehicleManagement() {
   });
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="spinner" />
-      </div>
-    );
-  }
+  return (
+    <div className="space-y-3">
+      {[...Array(5)].map((_, i) => (
+        <div key={i} className="card p-4 space-y-3">
+          <div className="skeleton h-4 w-1/3" />
+          <div className="skeleton h-3 w-1/2" />
+          <div className="grid grid-cols-2 gap-2">
+            <div className="skeleton h-10" />
+            <div className="skeleton h-10" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
   return (
     <div className="space-y-4">
@@ -212,14 +221,61 @@ export default function VehicleManagement() {
 
       {/* Expiry alerts */}
       {expiryAlerts.length > 0 && (
-        <div className="alert alert-amber">
-          <span className="alert-icon">⚠️</span>
-          <span className="alert-content">
-            <strong>{expiryAlerts.length}</strong> vehicle{expiryAlerts.length > 1 ? "s have" : " has"} insurance or roadworthy certificates expiring within 30 days.
-            {" "}{expiryAlerts.map(v => v.plate_number).join(", ")}
+  <div
+    className="rounded-2xl border p-4 flex items-start gap-3"
+    style={{
+      background: "rgba(245, 158, 11, 0.08)", // soft amber
+      borderColor: "var(--amber)",
+    }}
+  >
+    <div
+      className="w-9 h-9 flex items-center justify-center rounded-xl shrink-0"
+      style={{ background: "var(--amber)", color: "#fff", fontSize: 16 }}
+    >
+      ⚠
+    </div>
+
+    <div className="flex-1">
+      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
+        Expiring Documents
+      </div>
+
+      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+        <strong>{expiryAlerts.length}</strong> vehicle
+        {expiryAlerts.length > 1 ? "s have" : " has"} documents expiring within 30 days
+      </div>
+
+      <div className="flex flex-wrap gap-2 mt-3">
+        {expiryAlerts.slice(0, 6).map(v => (
+          <span
+            key={v.id}
+            className="px-2 py-1 text-xs rounded-lg"
+            style={{
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+              color: "var(--text)",
+              fontFamily: "'IBM Plex Mono', monospace",
+            }}
+          >
+            {v.plate_number}
           </span>
-        </div>
-      )}
+        ))}
+
+        {expiryAlerts.length > 6 && (
+          <span
+            className="px-2 py-1 text-xs rounded-lg"
+            style={{
+              background: "var(--surface-2)",
+              color: "var(--text-muted)",
+            }}
+          >
+            +{expiryAlerts.length - 6} more
+          </span>
+        )}
+      </div>
+    </div>
+  </div>
+)}
 
       {/* Tabs */}
       <div className="tab-group">

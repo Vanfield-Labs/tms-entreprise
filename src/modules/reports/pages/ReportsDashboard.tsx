@@ -256,7 +256,60 @@ export default function ReportsDashboard() {
     { value: "year",    label: "This Year"    },
   ];
 
-  if (loading) return <PageSpinner />;
+ if (loading) {
+  return (
+    <div className="space-y-5">
+
+      {/* Header skeleton */}
+      <div className="flex justify-between items-center">
+        <div className="space-y-2">
+          <div className="skeleton h-5 w-32" />
+          <div className="skeleton h-3 w-24" />
+        </div>
+        <div className="skeleton h-9 w-24 rounded-xl" />
+      </div>
+
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="stat-card space-y-2">
+            <div className="skeleton h-3 w-20" />
+            <div className="skeleton h-6 w-16" />
+          </div>
+        ))}
+      </div>
+
+      {/* Secondary stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {[...Array(3)].map((_, i) => (
+          <div key={i} className="stat-card space-y-2">
+            <div className="skeleton h-3 w-24" />
+            <div className="skeleton h-5 w-20" />
+          </div>
+        ))}
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {[...Array(2)].map((_, i) => (
+          <div key={i} className="card p-4 space-y-3">
+            <div className="skeleton h-4 w-32" />
+            <div className="skeleton h-24 w-full rounded-xl" />
+          </div>
+        ))}
+      </div>
+
+      {/* Table */}
+      <div className="card p-4 space-y-3">
+        <div className="skeleton h-4 w-40" />
+        {[...Array(5)].map((_, i) => (
+          <div key={i} className="skeleton h-10 w-full rounded-lg" />
+        ))}
+      </div>
+
+    </div>
+  );
+}
 
   return (
     <div className="space-y-5">
@@ -273,21 +326,39 @@ export default function ReportsDashboard() {
           <h1 className="page-title">Reports</h1>
           <p className="text-sm" style={{ color: "var(--text-muted)" }}>{label}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-xl overflow-hidden border" style={{ borderColor: "var(--border)" }}>
-            {periods.map(p => (
-              <button key={p.value} onClick={() => setPeriod(p.value)}
-                className="px-3 py-1.5 text-xs font-medium transition-colors"
-                style={{
-                  background: period === p.value ? "var(--accent)" : "var(--surface)",
-                  color:      period === p.value ? "#fff" : "var(--text-muted)",
-                }}>
-                {p.label}
-              </button>
-            ))}
-          </div>
-          <Btn variant="ghost" size="sm" onClick={() => setShowExport(true)}>⬇ Export</Btn>
-        </div>
+        <div className="flex flex-wrap items-stretch gap-2">
+  <div
+    className="flex rounded-xl overflow-hidden border min-h-[36px]"
+    style={{ borderColor: "var(--border)" }}
+  >
+    {periods.map(p => (
+      <button
+        key={p.value}
+        onClick={() => setPeriod(p.value)}
+        className="px-3 py-2 text-xs font-medium transition-colors"
+        style={{
+          background: period === p.value ? "var(--accent)" : "var(--surface)",
+          color: period === p.value ? "#fff" : "var(--text-muted)",
+        }}
+      >
+        {p.label}
+      </button>
+    ))}
+  </div>
+
+  <button
+    type="button"
+    onClick={() => setShowExport(true)}
+    className="px-3 py-2 text-xs font-medium rounded-xl border min-h-[36px] transition-colors"
+    style={{
+      background: "var(--surface)",
+      color: "var(--text)",
+      borderColor: "var(--border)",
+    }}
+  >
+    ⬇ Export
+  </button>
+</div>
       </div>
 
       {/* KPI grid — fluid font scales with container */}

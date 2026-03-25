@@ -14,29 +14,36 @@ export default function DriverLayout() {
     <AppShell
       title="Driver"
       navItems={[
-        { label: "My Trips",       element: <DriverTrips /> },
-        { label: "My Shifts",      element: <MyShifts /> },
-        { label: "Assignments",    element: <DriverAssignments /> },
-        {
-          label: "Fuel Request",
-          element: (
-            <div className="space-y-6">
-              <CreateFuelRequest />
-              <MyFuelRequests />
-            </div>
-          ),
-        },
-        {
-          label: "Incidents",
-          element: (
-            <div className="space-y-6">
-              <IncidentReportForm />
-              <MyIncidentReports />
-            </div>
-          ),
-        },
-        { label: "Profile", element: <ProfilePage /> },
-      ]}
+  // ── Work ────────────────────
+  { label: "My Trips", element: <DriverTrips /> },
+  { label: "My Shifts", element: <MyShifts /> },
+  { label: "Assignments", element: <DriverAssignments /> },
+
+  // ── Fuel ────────────────────
+  {
+    label: "Fuel Request",
+    element: (
+      <div className="space-y-6">
+        <CreateFuelRequest />
+        <MyFuelRequests />
+      </div>
+    ),
+  },
+
+  // ── Incidents ───────────────
+  {
+    label: "Incidents",
+    element: (
+      <div className="space-y-6">
+        <IncidentReportForm />
+        <MyIncidentReports />
+      </div>
+    ),
+  },
+
+  // ── Account ────────────────
+  { label: "Profile", element: <ProfilePage /> },
+]}
     />
   );
 }

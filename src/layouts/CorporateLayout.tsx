@@ -12,13 +12,20 @@ export default function CorporateLayout() {
     <AppShell
       title="Corporate"
       navItems={[
-        { label: "Booking Approvals",    element: <ApprovalQueue /> },
-        { label: "Fuel Approvals",       element: <FuelReviewQueue /> },
-        { label: "Fuel History",         element: <FuelApprovalHistory /> },
-        { label: "Maintenance Approvals",element: <MaintenanceApprovalQueue /> },
-        { label: "Reports",              element: <ReportsDashboard /> },
-        { label: "Profile",              element: <ProfilePage /> },
-      ]}
+  // ── Approvals ───────────────
+  { label: "Booking Approvals", element: <ApprovalQueue /> },
+  { label: "Fuel Approvals", element: <FuelReviewQueue /> },
+  { label: "Maintenance Approvals", element: <MaintenanceApprovalQueue /> },
+
+  // ── Fuel ────────────────────
+  { label: "Fuel History", element: <FuelApprovalHistory /> },
+
+  // ── Insights ────────────────
+  { label: "Reports", element: <ReportsDashboard /> },
+
+  // ── Account ────────────────
+  { label: "Profile", element: <ProfilePage /> },
+]}
     />
   );
 }

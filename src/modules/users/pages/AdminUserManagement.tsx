@@ -56,8 +56,11 @@ function ContextMenu({ profile, onEdit, onToggle, onResetPwd, toggling }: {
   onResetPwd: (p: Profile) => void;
   toggling:   boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+ const [open, setOpen] = useState(false);
+const [isMobileMenu, setIsMobileMenu] = useState(false);
+const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+const ref = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
     document.addEventListener("mousedown", h);
@@ -67,22 +70,64 @@ function ContextMenu({ profile, onEdit, onToggle, onResetPwd, toggling }: {
   return (
     <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
       <button
-        onClick={() => setOpen(v => !v)}
-        style={{
-          background: "none", border: "none", cursor: "pointer",
-          padding: "4px 8px", borderRadius: 6,
-          color: "var(--text-muted)", fontSize: 20, lineHeight: 1,
-        }}
-        title="Options"
-      >⋮</button>
+onClick={(e) => {
+  const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+  const mobile = window.innerWidth < 640;
 
-      {open && (
-        <div style={{
-          position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 100,
-          background: "var(--surface)", border: "1px solid var(--border)",
-          borderRadius: 10, boxShadow: "0 4px 20px rgba(0,0,0,.15)",
-          minWidth: 170, overflow: "hidden",
-        }}>
+  setIsMobileMenu(mobile);
+
+  if (!mobile) {
+    const menuWidth = 170;
+    let left = rect.left;
+
+    if (left + menuWidth > window.innerWidth) {
+      left = window.innerWidth - menuWidth - 8;
+    }
+
+    if (left < 8) {
+      left = 8;
+    }
+
+    setMenuPos({
+      top: rect.bottom + 6,
+      left,
+    });
+  }
+
+  setOpen(v => !v);
+}}
+  style={{
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    padding: "4px 8px",
+    borderRadius: 6,
+    color: "var(--text-muted)",
+    fontSize: 20,
+    lineHeight: 1,
+  }}
+  title="Options"
+>
+  ⋮
+</button>
+
+       {open && (
+  <div
+    style={{
+      position: isMobileMenu ? "absolute" : "fixed",
+      top: isMobileMenu ? "calc(100% + 6px)" : menuPos.top,
+      right: isMobileMenu ? 0 : "auto",
+      left: isMobileMenu ? "auto" : menuPos.left,
+      zIndex: 9999,
+      background: "var(--surface)",
+      border: "1px solid var(--border)",
+      borderRadius: 10,
+      boxShadow: "0 10px 30px rgba(0,0,0,.18)",
+      minWidth: 170,
+      overflow: "hidden",
+    }}
+  
+          >
           {[
             { label: "✏️  Edit",                onClick: () => { setOpen(false); onEdit(profile); },     color: "var(--text)" },
             {
@@ -399,10 +444,52 @@ export default function AdminUserManagement() {
       </div>
 
       {loading ? (
-        <div style={{ display: "flex", justifyContent: "center", padding: 48 }}>
-          <div className="w-6 h-6 border-2 rounded-full animate-spin"
-            style={{ borderColor: "var(--border)", borderTopColor: "var(--accent)" }} />
+        <div className="space-y-4">
+
+  {/* Header skeleton */}
+  <div className="flex items-center justify-between gap-3 flex-wrap">
+    <div className="space-y-2">
+      <div className="skeleton h-5 w-32" />
+      <div className="skeleton h-3 w-40" />
+    </div>
+    <div className="skeleton h-9 w-28 rounded-xl" />
+  </div>
+
+  {/* Search / filters */}
+  <div className="flex flex-wrap gap-2">
+    <div className="skeleton h-10 w-56 rounded-xl" />
+    <div className="skeleton h-10 w-32 rounded-xl" />
+  </div>
+
+  {/* User cards */}
+  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+    {[...Array(6)].map((_, i) => (
+      <div key={i} className="card p-4 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="skeleton w-10 h-10 rounded-full" />
+            <div className="space-y-2">
+              <div className="skeleton h-4 w-28" />
+              <div className="skeleton h-3 w-20" />
+            </div>
+          </div>
+          <div className="skeleton h-8 w-8 rounded-lg" />
         </div>
+
+        <div className="space-y-2">
+          <div className="skeleton h-3 w-full" />
+          <div className="skeleton h-3 w-4/5" />
+        </div>
+
+        <div className="flex gap-2">
+          <div className="skeleton h-8 w-20 rounded-lg" />
+          <div className="skeleton h-8 w-24 rounded-lg" />
+        </div>
+      </div>
+    ))}
+  </div>
+
+</div>
       ) : (
         <>
           {/* ── Pending Requests ── */}

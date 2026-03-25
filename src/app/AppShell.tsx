@@ -541,13 +541,15 @@ useEffect(() => {
         <div className="flex items-center gap-1.5 shrink-0">
           <ThemeToggle />
           {currentUserId && <NotificationBell currentUserId={currentUserId} onNavigate={navigateByEntity} />}
-          {profile && (
-            <button onClick={() => hasProfile ? go(items.length - 1) : undefined}
-              className={`w-8 h-8 rounded-full ${roleColor} flex items-center justify-center text-white text-xs font-bold hover:opacity-80 transition-opacity`}
-              title={profile.full_name}>
-              {initials}
-            </button>
-          )}
+         {profile && (
+  <button
+    onClick={() => (hasProfile ? go(items.length - 1) : undefined)}
+    className={`w-8 h-8 rounded-full ${roleColor} flex items-center justify-center text-white text-xs font-bold hover:opacity-80 transition-opacity ring-1 ring-black/5`}
+    title={profile.full_name}
+  >
+    {initials}
+  </button>
+)}
         </div>
       </header>
 
@@ -571,45 +573,61 @@ useEffect(() => {
           ${desktopCollapsed ? "lg:w-16" : "lg:w-64 xl:w-72"}
         `}>
           {/* Logo row */}
-          <div
-            className="flex items-center justify-between px-4 py-5 border-b border-[color:var(--border)] shrink-0 cursor-pointer select-none"
-            onClick={() => setDesktopCollapsed(c => !c)}
-            title={desktopCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-8 h-8 rounded-lg bg-[color:var(--text)] flex items-center justify-center shrink-0">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <rect x="1" y="1" width="6" height="6" rx="1" fill="var(--bg)"/>
-                  <rect x="9" y="1" width="6" height="6" rx="1" fill="var(--bg)" opacity=".5"/>
-                  <rect x="1" y="9" width="6" height="6" rx="1" fill="var(--bg)" opacity=".5"/>
-                  <rect x="9" y="9" width="6" height="6" rx="1" fill="var(--bg)"/>
-                </svg>
-              </div>
-              {!desktopCollapsed && (
-                <div className="min-w-0 hidden lg:block">
-                  <p className="text-sm font-bold text-[color:var(--text)] leading-tight">TMS Portal</p>
-                  <p className="text-[10px] text-[color:var(--text-muted)] uppercase tracking-widest truncate">{logoSubtitle}</p>
-                </div>
-              )}
-              <div className="min-w-0 lg:hidden">
-                <p className="text-sm font-bold text-[color:var(--text)] leading-tight">TMS Portal</p>
-                <p className="text-[10px] text-[color:var(--text-muted)] uppercase tracking-widest truncate">{logoSubtitle}</p>
-              </div>
-            </div>
-            <button onClick={e => { e.stopPropagation(); setSidebarOpen(false); }}
-              className="lg:hidden p-1.5 rounded-lg text-[color:var(--text-muted)] hover:bg-[color:var(--surface-2)] shrink-0">
-              <svg width="16" height="16" fill="none" viewBox="0 0 18 18">
-                <path d="M4 4 14 14M14 4 4 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
-            </button>
-            {!desktopCollapsed && (
-              <div className="hidden lg:flex p-1 rounded-md text-[color:var(--text-dim)] hover:text-[color:var(--text-muted)]">
-                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7M18 19l-7-7 7-7"/>
-                </svg>
-              </div>
-            )}
-          </div>
+          <div className="flex items-center justify-between px-4 py-5 border-b border-[color:var(--border)] shrink-0 select-none">
+  <div className="flex items-center gap-3 min-w-0">
+    <div className="w-8 h-8 rounded-lg bg-[color:var(--text)] flex items-center justify-center shrink-0">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="1" y="1" width="6" height="6" rx="1" fill="var(--bg)"/>
+        <rect x="9" y="1" width="6" height="6" rx="1" fill="var(--bg)" opacity=".5"/>
+        <rect x="1" y="9" width="6" height="6" rx="1" fill="var(--bg)" opacity=".5"/>
+        <rect x="9" y="9" width="6" height="6" rx="1" fill="var(--bg)"/>
+      </svg>
+    </div>
+
+    {!desktopCollapsed && (
+      <div className="min-w-0 hidden lg:block">
+        <p className="text-sm font-bold text-[color:var(--text)] leading-tight">TMS Portal</p>
+        <p className="text-[10px] text-[color:var(--text-muted)] uppercase tracking-widest truncate">
+          {logoSubtitle}
+        </p>
+      </div>
+    )}
+
+    <div className="min-w-0 lg:hidden">
+      <p className="text-sm font-bold text-[color:var(--text)] leading-tight">TMS Portal</p>
+      <p className="text-[10px] text-[color:var(--text-muted)] uppercase tracking-widest truncate">
+        {logoSubtitle}
+      </p>
+    </div>
+  </div>
+
+  <div className="flex items-center gap-1 shrink-0">
+    <button
+      onClick={() => setDesktopCollapsed(c => !c)}
+      className="hidden lg:flex p-1 rounded-md text-[color:var(--text-dim)] hover:text-[color:var(--text-muted)]"
+      title={desktopCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+      aria-label={desktopCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+    >
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        {desktopCollapsed ? (
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M6 5l7 7-7 7" />
+        ) : (
+          <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7M18 19l-7-7 7-7" />
+        )}
+      </svg>
+    </button>
+
+    <button
+      onClick={() => setSidebarOpen(false)}
+      className="lg:hidden p-1.5 rounded-lg text-[color:var(--text-muted)] hover:bg-[color:var(--surface-2)]"
+      aria-label="Close menu"
+    >
+      <svg width="16" height="16" fill="none" viewBox="0 0 18 18">
+        <path d="M4 4 14 14M14 4 4 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+      </svg>
+    </button>
+  </div>
+</div>
 
           {/* Nav items */}
           <nav className={`flex-1 overflow-y-auto py-4 ${desktopCollapsed ? "px-2 space-y-2" : "px-3 space-y-1"}`}>
@@ -617,13 +635,17 @@ useEffect(() => {
               const isActive = i === activeIndex && !isProfileActive;
               const badge = navBadges[item.label] ?? 0;
 
+              const dividerLabels = new Set([
+                "users",
+                "vehicles",
+                "record fuel",
+                "fuel history",
+                "reports",
+                "profile",
+              ]);
+
               const showDivider =
-                i > 0 &&
-                (
-                  item.label.toLowerCase().includes("users") ||
-                  item.label.toLowerCase().includes("audit") ||
-                  item.label.toLowerCase().includes("profile")
-                );
+               i > 0 && dividerLabels.has(item.label.toLowerCase());
              return (
   <>
     {showDivider && !desktopCollapsed && (
@@ -668,10 +690,14 @@ useEffect(() => {
       )}
 
       {desktopCollapsed && (
-        <span
-          className="absolute left-full ml-2 px-2 py-1 rounded-lg text-xs font-medium whitespace-nowrap z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
-          style={{ background: "var(--text)", color: "var(--bg)" }}
-        >
+       <span
+  className="fixed px-2 py-1 rounded-lg text-xs font-medium whitespace-nowrap z-[120] pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hidden lg:block"
+  style={{
+    background: "var(--text)",
+    color: "var(--bg)",
+    left: desktopCollapsed ? "76px" : undefined,
+  }}
+>
           {item.label}
           {badge > 0 ? ` (${badge})` : ""}
         </span>
@@ -683,7 +709,7 @@ useEffect(() => {
           </nav>
 
           {/* Footer: install button (when available) + sign out */}
-          <div className={`border-t border-[color:var(--border)] shrink-0 space-y-0.5 ${desktopCollapsed ? "px-2 py-3" : "px-4 py-4"}`}>
+          <div className={`border-t border-[color:var(--border)] shrink-0 space-y-1 ${desktopCollapsed ? "px-2 py-3" : "px-4 py-4"}`}>
 
             {/* ── NEW: PWA Install button — only when browser deems app installable ── */}
             {installPrompt && !appInstalled && (
@@ -691,7 +717,7 @@ useEffect(() => {
                 onClick={handleInstall}
                 title={desktopCollapsed ? "Install App" : undefined}
                 className={`
-                  w-full flex items-center rounded-xl text-sm font-medium min-h-[44px] transition-colors mb-1
+                  w-full flex items-center rounded-xl text-sm font-medium min-h-[44px] transition-colors 
                   ${desktopCollapsed ? "justify-center px-0 py-3" : "gap-2.5 px-3 py-2.5"}
                 `}
                 style={{ background: "var(--accent-dim)", color: "var(--accent)", border: "1px solid var(--accent)" }}
@@ -763,20 +789,20 @@ useEffect(() => {
                   >
                     {initials}
                   </div>
-                  <div className="text-left min-w-0">
-                    <p
-                      className="text-xs font-semibold truncate max-w-[140px]"
-                      style={{ color: "var(--text)" }}
-                    >
-                      {profile.full_name}
-                    </p>
-                    <p
-                      className="text-[10px] truncate"
-                      style={{ color: "var(--text-muted)" }}
-                    >
-                      {profile.position_title ?? roleLabel}
-                    </p>
-                  </div>
+                <div className="text-left min-w-0">
+  <p
+    className="text-xs font-semibold truncate max-w-[160px]"
+    style={{ color: "var(--text)" }}
+  >
+    {profile.full_name}
+  </p>
+  <p
+    className="text-[10px] uppercase tracking-wide truncate"
+    style={{ color: "var(--text-muted)" }}
+  >
+    {profile.position_title ?? roleLabel}
+  </p>
+</div>
                   <svg
                     width="12"
                     height="12"
