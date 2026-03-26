@@ -1,8 +1,20 @@
 // src/modules/dispatch/pages/DispatchBoard.tsx
-import { useEffect, useState } from "react";
+
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
-import { EmptyState, Badge, Card, StatCard, Field, Select, Input, Btn } from "@/components/TmsUI";
+import {
+  EmptyState,
+  Badge,
+  Card,
+  StatCard,
+  Field,
+  Select,
+  Input,
+  Btn,
+} from "@/components/TmsUI";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
+import { useRealtimeTable } from "@/hooks/useRealtimeTable";
+import { debounce } from "@/lib/debounce";
 
 type Booking = {
   id: string;
@@ -43,7 +55,6 @@ type Driver = {
 function DispatchBoardSkeleton() {
   return (
     <div className="space-y-4 animate-pulse">
-      {/* KPI row */}
       <div className="grid grid-cols-3 gap-3">
         {Array.from({ length: 3 }).map((_, i) => (
           <div
@@ -56,20 +67,16 @@ function DispatchBoardSkeleton() {
         ))}
       </div>
 
-      {/* Booking cards */}
       {Array.from({ length: 3 }).map((_, i) => (
         <div
           key={i}
           className="overflow-hidden rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)]"
         >
-          <div
-            className="px-4 py-3 border-b border-[color:var(--border)]"
-            style={{ background: "color-mix(in srgb, var(--green-dim) 35%, var(--surface))" }}
-          >
+          <div className="px-4 py-3 border-b border-[color:var(--border)]">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <div className="h-4 w-40 rounded bg-[color:var(--surface-2)]" />
-                <div className="mt-2 h-3 w-24 rounded bg-[color:var(--surface-2)]" />
+                <div className="mt-2 h-3 w-28 rounded bg-[color:var(--surface-2)]" />
               </div>
               <div className="h-6 w-20 rounded-full bg-[color:var(--surface-2)]" />
             </div>
@@ -85,7 +92,6 @@ function DispatchBoardSkeleton() {
                 <div className="h-3 w-40 rounded bg-[color:var(--surface-2)]" />
               </div>
             </div>
-            <div className="h-3 w-36 rounded bg-[color:var(--surface-2)]" />
           </div>
 
           <div className="px-4 py-3 border-b border-[color:var(--border)] space-y-3">
@@ -132,49 +138,28 @@ export default function DispatchBoard() {
   const [dispatching, setDispatching] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Record<string, string>>({});
-  const [rtMessage, setRtMessage] = useState<string | null>(null);
-  const [flashIds, setFlashIds] = useState<Record<string, boolean>>({});
 
-
-  function showRealtimeMessage(message: string) {
-    setRtMessage(message);
-    window.clearTimeout((showRealtimeMessage as any)._t);
-    (showRealtimeMessage as any)._t = window.setTimeout(() => {
-      setRtMessage(null);
-    }, 2500);
-  }
-
-  function flashCard(id: string) {
-    setFlashIds(prev => ({ ...prev, [id]: true }));
-    window.setTimeout(() => {
-      setFlashIds(prev => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-    }, 3000);
-  }
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
 
-    // ── Approved bookings ──────────────────────────────────────────────────
     const { data: bookingsRaw } = await supabase
       .from("bookings")
-      .select("id,purpose,trip_date,trip_time,pickup_location,dropoff_location,pickup_digital_address,dropoff_digital_address,booking_type,num_passengers,trip_notes,status,created_by,created_at")
+      .select(
+        "id,purpose,trip_date,trip_time,pickup_location,dropoff_location,pickup_digital_address,dropoff_digital_address,booking_type,num_passengers,trip_notes,status,created_by,created_at"
+      )
       .eq("status", "approved")
       .order("trip_date", { ascending: true });
 
-    const bookings = (bookingsRaw as any[]) || [];
+    const bookingRows = (bookingsRaw as any[]) || [];
 
-    // ── Active vehicles ────────────────────────────────────────────────────
     const { data: vehiclesRaw } = await supabase
       .from("vehicles")
       .select("id,plate_number,make,model,fuel_type")
       .eq("status", "active")
       .order("plate_number");
+
     setVehicles((vehiclesRaw as Vehicle[]) || []);
 
-    // ── Active drivers — split query ────────────────────────────────────────
     const { data: driversRaw } = await supabase
       .from("drivers")
       .select("id,full_name,license_number,phone,user_id")
@@ -183,110 +168,133 @@ export default function DispatchBoard() {
 
     const driverRows = (driversRaw as any[]) || [];
 
-    // Resolve names from profiles for drivers missing full_name
-    const missingIds = driverRows.filter((d: any) => !d.full_name && d.user_id).map((d: any) => d.user_id);
-    let nameMap: Record<string, string> = {};
-    if (missingIds.length > 0) {
+    const missingDriverProfileIds = driverRows
+      .filter((d: any) => !d.full_name && d.user_id)
+      .map((d: any) => d.user_id);
+
+    let driverNameMap: Record<string, string> = {};
+
+    if (missingDriverProfileIds.length > 0) {
       const { data: pd } = await supabase
         .from("profiles")
         .select("user_id,full_name")
-        .in("user_id", missingIds);
-      nameMap = Object.fromEntries(((pd as any[]) || []).map((p: any) => [p.user_id, p.full_name]));
+        .in("user_id", missingDriverProfileIds);
+
+      driverNameMap = Object.fromEntries(
+        ((pd as any[]) || []).map((p: any) => [p.user_id, p.full_name])
+      );
     }
 
-    setDrivers(driverRows.map((d: any) => ({
-      driver_id: d.id,
-      license_number: d.license_number,
-      phone: d.phone ?? null,
-      full_name: d.full_name ?? (d.user_id ? (nameMap[d.user_id] ?? `Driver ${d.license_number}`) : `Driver ${d.license_number}`),
-    })));
+    setDrivers(
+      driverRows.map((d: any) => ({
+        driver_id: d.id,
+        license_number: d.license_number,
+        phone: d.phone ?? null,
+        full_name:
+          d.full_name ??
+          (d.user_id
+            ? driverNameMap[d.user_id] ?? `Driver ${d.license_number}`
+            : `Driver ${d.license_number}`),
+      }))
+    );
 
-    // ── Resolve requester profiles ─────────────────────────────────────────
-    let profileMap: Record<string, { name: string; position: string | null; division: string | null; unit: string | null }> = {};
-    if (bookings.length > 0) {
-      try {
-        const creatorIds = [...new Set(bookings.map((b: any) => b.created_by).filter(Boolean))];
-        const { data: profilesRaw } = await supabase
-          .from("profiles")
-          .select("user_id,full_name,position_title,division_id,unit_id")
-          .in("user_id", creatorIds);
-        const profiles = (profilesRaw as any[]) || [];
+    let profileMap: Record<
+      string,
+      {
+        name: string;
+        position: string | null;
+        division: string | null;
+        unit: string | null;
+      }
+    > = {};
 
-        const divIds = [...new Set(profiles.map((p: any) => p.division_id).filter(Boolean))];
-        const unitIds = [...new Set(profiles.map((p: any) => p.unit_id).filter(Boolean))];
-        const [{ data: divsRaw }, { data: unitsRaw }] = await Promise.all([
-          divIds.length ? supabase.from("divisions").select("id,name").in("id", divIds) : Promise.resolve({ data: [] }),
-          unitIds.length ? supabase.from("units").select("id,name").in("id", unitIds) : Promise.resolve({ data: [] }),
-        ]);
-        const divMap = Object.fromEntries(((divsRaw as any[]) || []).map((d: any) => [d.id, d.name]));
-        const unitMap = Object.fromEntries(((unitsRaw as any[]) || []).map((u: any) => [u.id, u.name]));
-        profiles.forEach((p: any) => {
-          profileMap[p.user_id] = {
-            name: p.full_name ?? "—",
-            position: p.position_title ?? null,
-            division: p.division_id ? (divMap[p.division_id] ?? null) : null,
-            unit: p.unit_id ? (unitMap[p.unit_id] ?? null) : null,
-          };
-        });
-      } catch (_) { }
+    if (bookingRows.length > 0) {
+      const creatorIds = [...new Set(bookingRows.map((b: any) => b.created_by).filter(Boolean))];
+
+      const { data: profilesRaw } = await supabase
+        .from("profiles")
+        .select("user_id,full_name,position_title,division_id,unit_id")
+        .in("user_id", creatorIds);
+
+      const profiles = (profilesRaw as any[]) || [];
+
+      const divisionIds = [...new Set(profiles.map((p: any) => p.division_id).filter(Boolean))];
+      const unitIds = [...new Set(profiles.map((p: any) => p.unit_id).filter(Boolean))];
+
+      const [{ data: divsRaw }, { data: unitsRaw }] = await Promise.all([
+        divisionIds.length
+          ? supabase.from("divisions").select("id,name").in("id", divisionIds)
+          : Promise.resolve({ data: [] as any[] }),
+        unitIds.length
+          ? supabase.from("units").select("id,name").in("id", unitIds)
+          : Promise.resolve({ data: [] as any[] }),
+      ]);
+
+      const divMap = Object.fromEntries(((divsRaw as any[]) || []).map((d: any) => [d.id, d.name]));
+      const unitMap = Object.fromEntries(((unitsRaw as any[]) || []).map((u: any) => [u.id, u.name]));
+
+      profiles.forEach((p: any) => {
+        profileMap[p.user_id] = {
+          name: p.full_name ?? "—",
+          position: p.position_title ?? null,
+          division: p.division_id ? divMap[p.division_id] ?? null : null,
+          unit: p.unit_id ? unitMap[p.unit_id] ?? null : null,
+        };
+      });
     }
 
-    setBookings(bookings.map((b: any) => {
-      const prof = profileMap[b.created_by] ?? { name: "—", position: null, division: null, unit: null };
-      return { ...b, requester_name: prof.name, requester_position: prof.position, requester_division: prof.division, requester_unit: prof.unit };
-    }));
+    setBookings(
+      bookingRows.map((b: any) => {
+        const prof = profileMap[b.created_by] ?? {
+          name: "—",
+          position: null,
+          division: null,
+          unit: null,
+        };
+
+        return {
+          ...b,
+          requester_name: prof.name,
+          requester_position: prof.position,
+          requester_division: prof.division,
+          requester_unit: prof.unit,
+        };
+      })
+    );
 
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
-    load();
+    void load();
+  }, [load]);
 
-    const ch = supabase
-      .channel("dispatch_board_realtime_ui")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "bookings" },
-        async (payload) => {
-          const nextStatus = payload.new && "status" in payload.new ? String(payload.new.status ?? "") : "";
-          const prevStatus = payload.old && "status" in payload.old ? String(payload.old.status ?? "") : "";
-          const bookingId =
-            (payload.new && "id" in payload.new ? String(payload.new.id ?? "") : "") ||
-            (payload.old && "id" in payload.old ? String(payload.old.id ?? "") : "");
+  const debouncedReload = useMemo(
+    () => debounce(() => void load(), 500),
+    [load]
+  );
 
-          if (payload.eventType === "INSERT" && nextStatus === "approved") {
-            showRealtimeMessage("New dispatch-ready booking");
-            if (bookingId) flashCard(bookingId);
-          } else if (payload.eventType === "UPDATE") {
-            if (nextStatus === "approved" && prevStatus !== "approved") {
-              showRealtimeMessage("Booking approved for dispatch");
-              if (bookingId) flashCard(bookingId);
-            } else if (prevStatus === "approved" && nextStatus !== "approved") {
-              showRealtimeMessage("Booking left dispatch queue");
-            } else if (nextStatus === "approved") {
-              showRealtimeMessage("Dispatch queue updated");
-              if (bookingId) flashCard(bookingId);
-            }
-          } else if (payload.eventType === "DELETE" && prevStatus === "approved") {
-            showRealtimeMessage("Dispatch-ready booking removed");
-          }
+  useRealtimeTable({
+    table: "bookings",
+    event: "*",
+    onChange: debouncedReload,
+  });
 
-          await load();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(ch);
-    };
-  }, []);
+  useRealtimeTable({
+    table: "dispatch_assignments",
+    event: "*",
+    onChange: debouncedReload,
+  });
 
   const dispatch = async (bookingId: string) => {
     const vehicleId = selVehicle[bookingId];
     const driverId = selDriver[bookingId];
+
     if (!vehicleId || !driverId) return;
-    setDispatching(m => ({ ...m, [bookingId]: true }));
-    setError(m => ({ ...m, [bookingId]: "" }));
+
+    setDispatching((m) => ({ ...m, [bookingId]: true }));
+    setError((m) => ({ ...m, [bookingId]: "" }));
+
     try {
       const { error: rpcErr } = await supabase.rpc("dispatch_booking", {
         p_booking_id: bookingId,
@@ -294,12 +302,17 @@ export default function DispatchBoard() {
         p_driver_id: driverId,
         p_notes: notes[bookingId] || null,
       });
+
       if (rpcErr) throw rpcErr;
+
       await load();
     } catch (e: any) {
-      setError(m => ({ ...m, [bookingId]: e.message ?? "Dispatch failed." }));
+      setError((m) => ({
+        ...m,
+        [bookingId]: e.message ?? "Dispatch failed.",
+      }));
     } finally {
-      setDispatching(m => ({ ...m, [bookingId]: false }));
+      setDispatching((m) => ({ ...m, [bookingId]: false }));
     }
   };
 
@@ -307,216 +320,380 @@ export default function DispatchBoard() {
 
   return (
     <div className="space-y-4">
-      {rtMessage && (
-        <div className="fixed top-4 right-4 z-50">
-          <div
-            className="rounded-2xl border px-4 py-3 shadow-lg text-sm"
-            style={{
-              background: "var(--surface)",
-              borderColor: "var(--border)",
-              color: "var(--text)",
-              minWidth: 240,
-            }}
-          >
-            {rtMessage}
-          </div>
-        </div>
-      )}
-
-      {/* KPI row */}
       <div className="grid grid-cols-3 gap-3">
-        <StatCard label="To Dispatch" value={bookings.length} accent="accent" />
-        <StatCard label="Vehicles" value={vehicles.length} accent="green" />
-        <StatCard label="Drivers" value={drivers.length} accent="purple" />
+        <StatCard label="To Dispatch" value={bookings.length} />
+        <StatCard label="Vehicles" value={vehicles.length} />
+        <StatCard label="Drivers" value={drivers.length} />
       </div>
 
       {bookings.length === 0 ? (
         <EmptyState
           title="Nothing to dispatch"
           subtitle="No approved bookings awaiting assignment"
-          icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg>}
         />
       ) : (
         <div className="space-y-4">
-          {bookings.map(b => {
+          {bookings.map((b) => {
             const ready = !!(selVehicle[b.id] && selDriver[b.id]);
-            const selectedDriver = drivers.find(d => d.driver_id === selDriver[b.id]);
+            const selectedDriver = drivers.find((d) => d.driver_id === selDriver[b.id]);
+            const requesterInitials = b.requester_name
+              .split(" ")
+              .map((n) => n[0])
+              .filter(Boolean)
+              .slice(0, 2)
+              .join("")
+              .toUpperCase();
 
             return (
-              <Card
-                key={b.id}
-                className={flashIds[b.id] ? "transition-all duration-500" : undefined}
-              >
-
-                {/* ── Header ── */}
+              <Card key={b.id}>
+                {/* Header */}
                 <div
                   className="px-4 py-3 border-b border-[color:var(--border)]"
                   style={{
-                    background: flashIds[b.id]
-                      ? "color-mix(in srgb, var(--accent) 10%, color-mix(in srgb, var(--green-dim) 60%, var(--surface)))"
-                      : "color-mix(in srgb, var(--green-dim) 60%, var(--surface))",
-                    boxShadow: flashIds[b.id]
-                      ? "0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent)"
-                      : undefined,
-                    transition: "all 0.4s ease",
+                    background: "color-mix(in srgb, var(--green-dim) 60%, var(--surface))",
                   }}
                 >
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="font-bold text-sm text-[color:var(--text)]">{b.purpose}</p>
-                      <p className="text-xs text-[color:var(--text-muted)] mt-0.5 capitalize">
-                        {b.booking_type ?? "booking"}
+                      <p className="font-bold text-sm text-[color:var(--text)]">
+                        {b.purpose}
+                      </p>
+                      <p className="text-xs text-[color:var(--text-muted)] mt-0.5">
+                        Submitted {fmtDateTime(b.created_at)}
                       </p>
                     </div>
                     <Badge status="approved" />
                   </div>
                 </div>
 
-                {/* ── Requester info ── */}
+                {/* Requester info */}
                 <div
                   className="px-4 py-3 border-b border-[color:var(--border)]"
                   style={{ background: "var(--surface-2)" }}
                 >
-                  <p className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-muted)" }}>
+                  <p
+                    className="text-[10px] font-semibold uppercase tracking-widest mb-2"
+                    style={{ color: "var(--text-muted)" }}
+                  >
                     Requested By
                   </p>
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-                    <div style={{
-                      width: 36, height: 36, borderRadius: 10,
-                      background: "var(--accent)",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 12, fontWeight: 700, color: "#fff", flexShrink: 0,
-                    }}>
-                      {b.requester_name.split(" ").map((n: string) => n[0]).slice(0, 2).join("").toUpperCase()}
+
+                  <div className="flex items-start gap-3">
+                    <div
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 10,
+                        background: "var(--accent)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: "#fff",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {requesterInitials || "—"}
                     </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", margin: 0, lineHeight: 1.3 }}>
+
+                    <div className="min-w-0 flex-1">
+                      <p
+                        style={{
+                          fontSize: 14,
+                          fontWeight: 600,
+                          color: "var(--text)",
+                          margin: 0,
+                          lineHeight: 1.3,
+                        }}
+                      >
                         {b.requester_name}
                       </p>
+
                       {b.requester_position && (
-                        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "2px 0 0", lineHeight: 1.3 }}>
+                        <p
+                          style={{
+                            fontSize: 12,
+                            color: "var(--text-muted)",
+                            margin: "2px 0 0",
+                            lineHeight: 1.3,
+                          }}
+                        >
                           {b.requester_position}
                         </p>
                       )}
+
                       {(b.requester_division || b.requester_unit) && (
-                        <p style={{ fontSize: 11, color: "var(--text-dim)", margin: "2px 0 0", lineHeight: 1.3 }}>
+                        <p
+                          style={{
+                            fontSize: 11,
+                            color: "var(--text-dim)",
+                            margin: "2px 0 0",
+                            lineHeight: 1.3,
+                          }}
+                        >
                           {[b.requester_division, b.requester_unit].filter(Boolean).join(" · ")}
                         </p>
                       )}
                     </div>
                   </div>
-                  <p style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 8 }}>
-                    Submitted {fmtDateTime(b.created_at)}
-                  </p>
                 </div>
 
-                {/* ── Trip details ── */}
-                <div className="px-4 py-3 border-b border-[color:var(--border)] space-y-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: "var(--text-muted)" }}>
+                {/* Trip info */}
+                <div className="px-4 py-3 border-b border-[color:var(--border)] space-y-3">
+                  <p
+                    className="text-[10px] font-semibold uppercase tracking-widest"
+                    style={{ color: "var(--text-muted)" }}
+                  >
                     Trip Details
                   </p>
 
-                  {/* Date & time */}
                   <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
                     <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                      />
                     </svg>
                     <span>
-                      <span style={{ fontWeight: 600, color: "var(--text)" }}>{fmtDate(b.trip_date)}</span> at {b.trip_time}
+                      <span style={{ fontWeight: 600, color: "var(--text)" }}>
+                        {fmtDate(b.trip_date)}
+                      </span>{" "}
+                      at {b.trip_time}
                     </span>
                   </div>
 
-                  {/* Route */}
-                  <div style={{ display: "flex", alignItems: "stretch", gap: 12, padding: "4px 0" }}>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, paddingTop: 2, flexShrink: 0 }}>
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", border: "2px solid var(--accent)", background: "var(--surface)", flexShrink: 0 }} />
-                      <div style={{ width: 1, flex: 1, minHeight: 14, background: "var(--border-bright)" }} />
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "var(--text)", flexShrink: 0 }} />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "space-between", gap: 8 }}>
-                      <div>
-                        <p style={{ fontSize: 12, fontWeight: 500, color: "var(--text)", margin: 0 }}>{b.pickup_location}</p>
-                        {b.pickup_digital_address && (
-                          <p style={{ fontSize: 11, color: "var(--text-dim)", margin: "1px 0 0" }}>{b.pickup_digital_address}</p>
-                        )}
+                  <div
+                    className="rounded-xl border px-3 py-3"
+                    style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          gap: 4,
+                          paddingTop: 2,
+                          flexShrink: 0,
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: "50%",
+                            border: "2px solid var(--accent)",
+                            background: "var(--surface)",
+                          }}
+                        />
+                        <div
+                          style={{
+                            width: 1,
+                            flex: 1,
+                            minHeight: 18,
+                            background: "var(--border-bright)",
+                          }}
+                        />
+                        <div
+                          style={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: "50%",
+                            background: "var(--text)",
+                          }}
+                        />
                       </div>
-                      <div>
-                        <p style={{ fontSize: 12, fontWeight: 500, color: "var(--text)", margin: 0 }}>{b.dropoff_location}</p>
-                        {b.dropoff_digital_address && (
-                          <p style={{ fontSize: 11, color: "var(--text-dim)", margin: "1px 0 0" }}>{b.dropoff_digital_address}</p>
-                        )}
+
+                      <div className="flex-1 min-w-0 space-y-3">
+                        <div>
+                          <p
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 600,
+                              color: "var(--text)",
+                              margin: 0,
+                            }}
+                          >
+                            {b.pickup_location}
+                          </p>
+                          {b.pickup_digital_address && (
+                            <p
+                              style={{
+                                fontSize: 11,
+                                color: "var(--text-dim)",
+                                margin: "2px 0 0",
+                              }}
+                            >
+                              {b.pickup_digital_address}
+                            </p>
+                          )}
+                        </div>
+
+                        <div>
+                          <p
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 600,
+                              color: "var(--text)",
+                              margin: 0,
+                            }}
+                          >
+                            {b.dropoff_location}
+                          </p>
+                          {b.dropoff_digital_address && (
+                            <p
+                              style={{
+                                fontSize: 11,
+                                color: "var(--text-dim)",
+                                margin: "2px 0 0",
+                              }}
+                            >
+                              {b.dropoff_digital_address}
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  {b.num_passengers != null && b.num_passengers > 0 && (
-                    <p style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                      👥 {b.num_passengers} passenger{b.num_passengers !== 1 ? "s" : ""}
-                    </p>
-                  )}
+                  <div className="flex flex-wrap gap-2">
+                    {b.booking_type && (
+                      <span
+                        className="text-xs px-2 py-1 rounded-full"
+                        style={{
+                          background: "var(--surface-2)",
+                          color: "var(--text)",
+                          border: "1px solid var(--border)",
+                        }}
+                      >
+                        {b.booking_type}
+                      </span>
+                    )}
+
+                    {b.num_passengers != null && b.num_passengers > 0 && (
+                      <span
+                        className="text-xs px-2 py-1 rounded-full"
+                        style={{
+                          background: "var(--surface-2)",
+                          color: "var(--text)",
+                          border: "1px solid var(--border)",
+                        }}
+                      >
+                        👥 {b.num_passengers} passenger{b.num_passengers !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
 
                   {b.trip_notes && (
                     <div
                       className="rounded-lg px-3 py-2 text-xs"
-                      style={{ background: "var(--surface-2)", color: "var(--text-muted)", border: "1px solid var(--border)" }}
+                      style={{
+                        background: "var(--surface-2)",
+                        color: "var(--text-muted)",
+                        border: "1px solid var(--border)",
+                      }}
                     >
-                      <span style={{ fontWeight: 600, color: "var(--text)" }}>Notes: </span>{b.trip_notes}
+                      <span style={{ fontWeight: 600, color: "var(--text)" }}>Notes: </span>
+                      {b.trip_notes}
                     </div>
                   )}
                 </div>
 
-                {/* ── Assign vehicle + driver ── */}
+                {/* Dispatch controls */}
                 <div className="p-4 space-y-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
+                  <p
+                    className="text-[10px] font-semibold uppercase tracking-widest"
+                    style={{ color: "var(--text-muted)" }}
+                  >
                     Assign Resources
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {/* Vehicle */}
                     <Field label="Vehicle *">
                       <Select
                         value={selVehicle[b.id] || ""}
-                        onChange={e => setSelVehicle(m => ({ ...m, [b.id]: e.target.value }))}
+                        onChange={(e) =>
+                          setSelVehicle((m) => ({
+                            ...m,
+                            [b.id]: e.target.value,
+                          }))
+                        }
                       >
                         <option value="">— Select vehicle —</option>
-                        {vehicles.map(v => (
+                        {vehicles.map((v) => (
                           <option key={v.id} value={v.id}>
-                            {v.plate_number}{v.make ? ` · ${v.make}` : ""}{v.model ? ` ${v.model}` : ""}{v.fuel_type ? ` (${v.fuel_type})` : ""}
+                            {v.plate_number}
+                            {v.make ? ` · ${v.make}` : ""}
+                            {v.model ? ` ${v.model}` : ""}
+                            {v.fuel_type ? ` (${v.fuel_type})` : ""}
                           </option>
                         ))}
                       </Select>
                     </Field>
 
-                    {/* Driver */}
                     <Field label="Driver *">
                       <Select
                         value={selDriver[b.id] || ""}
-                        onChange={e => setSelDriver(m => ({ ...m, [b.id]: e.target.value }))}
+                        onChange={(e) =>
+                          setSelDriver((m) => ({
+                            ...m,
+                            [b.id]: e.target.value,
+                          }))
+                        }
                       >
                         <option value="">— Select driver —</option>
-                        {drivers.map(d => (
+                        {drivers.map((d) => (
                           <option key={d.driver_id} value={d.driver_id}>
-                            {d.full_name}{d.phone ? ` · ${d.phone}` : ""}
+                            {d.full_name}
+                            {d.phone ? ` · ${d.phone}` : ""}
                           </option>
                         ))}
                       </Select>
                     </Field>
                   </div>
 
-                  {/* Selected driver confirmation pill */}
                   {selectedDriver && (
                     <div
-                      className="rounded-lg px-3 py-2 flex items-center gap-2"
-                      style={{ background: "var(--accent-dim)", border: "1px solid var(--accent)" }}
+                      className="rounded-lg px-3 py-2 flex items-center gap-2 flex-wrap"
+                      style={{
+                        background: "var(--accent-dim)",
+                        border: "1px solid var(--accent)",
+                      }}
                     >
                       <span>🧑‍✈️</span>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{selectedDriver.full_name}</span>
+                      <span
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: "var(--text)",
+                        }}
+                      >
+                        {selectedDriver.full_name}
+                      </span>
                       <span style={{ color: "var(--text-dim)" }}>·</span>
-                      <span style={{ fontSize: 12, fontFamily: "monospace", color: "var(--text-muted)" }}>{selectedDriver.license_number}</span>
+                      <span
+                        style={{
+                          fontSize: 12,
+                          fontFamily: "monospace",
+                          color: "var(--text-muted)",
+                        }}
+                      >
+                        {selectedDriver.license_number}
+                      </span>
                       {selectedDriver.phone && (
                         <>
                           <span style={{ color: "var(--text-dim)" }}>·</span>
-                          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{selectedDriver.phone}</span>
+                          <span
+                            style={{
+                              fontSize: 12,
+                              color: "var(--text-muted)",
+                            }}
+                          >
+                            {selectedDriver.phone}
+                          </span>
                         </>
                       )}
                     </div>
@@ -526,12 +703,19 @@ export default function DispatchBoard() {
                     <Input
                       placeholder="Special instructions for the driver…"
                       value={notes[b.id] || ""}
-                      onChange={e => setNotes(m => ({ ...m, [b.id]: e.target.value }))}
+                      onChange={(e) =>
+                        setNotes((m) => ({
+                          ...m,
+                          [b.id]: e.target.value,
+                        }))
+                      }
                     />
                   </Field>
 
                   {error[b.id] && (
-                    <p style={{ fontSize: 12, color: "var(--red)" }}>{error[b.id]}</p>
+                    <p style={{ fontSize: 12, color: "var(--red)" }}>
+                      {error[b.id]}
+                    </p>
                   )}
 
                   <Btn
@@ -541,10 +725,9 @@ export default function DispatchBoard() {
                     loading={dispatching[b.id]}
                     onClick={() => dispatch(b.id)}
                   >
-                    Dispatch →
+                    Dispatch
                   </Btn>
                 </div>
-
               </Card>
             );
           })}
