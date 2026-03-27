@@ -1,6 +1,6 @@
 // src/modules/reports/pages/ReportsDashboard.tsx
-import { useEffect, useState, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { supabase, cachedFetch } from "@/lib/supabase";
 import { Card, CardHeader, CardBody, StatCard, Badge, Btn } from "@/components/TmsUI";
 import { usePagination, PaginationBar } from "@/hooks/usePagination";
 import { fmtMoney } from "@/lib/utils";
@@ -242,14 +242,7 @@ function DonutChart({ data }: { data: { label: string; value: number; color: str
             offset += dash;
             return seg;
           })}
-        <text
-          x="50"
-          y="54"
-          textAnchor="middle"
-          fontSize="14"
-          fontWeight="bold"
-          fill="var(--text)"
-        >
+        <text x="50" y="54" textAnchor="middle" fontSize="14" fontWeight="bold" fill="var(--text)">
           {total}
         </text>
       </svg>
@@ -261,10 +254,7 @@ function DonutChart({ data }: { data: { label: string; value: number; color: str
             <span className="text-xs" style={{ color: "var(--text-muted)" }}>
               {d.label}
             </span>
-            <span
-              className="text-xs font-semibold ml-auto pl-4"
-              style={{ color: "var(--text)" }}
-            >
+            <span className="text-xs font-semibold ml-auto pl-4" style={{ color: "var(--text)" }}>
               {d.value}
             </span>
           </div>
@@ -299,10 +289,7 @@ function ExportConfirm({
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ fontSize: 32, textAlign: "center", marginBottom: 12 }}>📊</div>
-        <h3
-          className="text-base font-bold mb-2 text-center"
-          style={{ color: "var(--text)" }}
-        >
+        <h3 className="text-base font-bold mb-2 text-center" style={{ color: "var(--text)" }}>
           Export Report
         </h3>
         <p className="text-sm mb-1 text-center" style={{ color: "var(--text-muted)" }}>
@@ -401,66 +388,86 @@ export default function ReportsDashboard() {
   const maintPg = usePagination(maint);
   const utilPg = usePagination(utilization);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setLoading(true);
     const { from, to } = getPeriodRange(period);
+    const cacheKey = `reports_dashboard:${period}:${from}:${to}`;
 
-    const [{ data: b }, { data: f }, { data: m }, { data: v }] = await Promise.all([
-      supabase
-        .from("bookings")
-        .select("status,booking_type,trip_date,purpose,created_at")
-        .gte("created_at", from)
-        .lte("created_at", to + "T23:59:59")
-        .limit(1000),
+    try {
+      const result = await cachedFetch(
+        cacheKey,
+        async () => {
+          const [{ data: b }, { data: f }, { data: m }, { data: v }] = await Promise.all([
+            supabase
+              .from("bookings")
+              .select("status,booking_type,trip_date,purpose,created_at")
+              .gte("created_at", from)
+              .lte("created_at", to + "T23:59:59")
+              .limit(1000),
 
-      supabase
-        .from("fuel_requests")
-        .select("status,amount,liters,vendor,request_date,vehicles(plate_number,fuel_type)")
-        .gte("created_at", from)
-        .lte("created_at", to + "T23:59:59")
-        .limit(1000),
+            supabase
+              .from("fuel_requests")
+              .select("status,amount,liters,vendor,request_date,vehicles(plate_number,fuel_type)")
+              .gte("created_at", from)
+              .lte("created_at", to + "T23:59:59")
+              .limit(1000),
 
-      supabase
-        .from("maintenance_requests")
-        .select("status,issue_type,created_at,vehicles(plate_number)")
-        .gte("created_at", from)
-        .lte("created_at", to + "T23:59:59")
-        .limit(1000),
+            supabase
+              .from("maintenance_requests")
+              .select("status,issue_type,created_at,vehicles(plate_number)")
+              .gte("created_at", from)
+              .lte("created_at", to + "T23:59:59")
+              .limit(1000),
 
-      supabase.from("v_vehicle_utilization_30d").select("*").limit(50),
-    ]);
+            supabase.from("v_vehicle_utilization_30d").select("*").limit(50),
+          ]);
 
-    const bRows = (b as BookingRow[]) || [];
-    const fRows = (f as unknown as FuelRow[]) || [];
-    const mRows = (m as unknown as MaintRow[]) || [];
-    const vRows = (v as unknown as VehicleUtil[]) || [];
+          const bRows = (b as BookingRow[]) || [];
+          const fRows = (f as unknown as FuelRow[]) || [];
+          const mRows = (m as unknown as MaintRow[]) || [];
+          const vRows = (v as unknown as VehicleUtil[]) || [];
 
-    setBookings(bRows);
-    setFuel(fRows);
-    setMaint(mRows);
-    setUtilization(vRows);
+          const nextKpi: KPI = {
+            total_bookings: bRows.length,
+            approved_bookings: bRows.filter((r) =>
+              ["approved", "dispatched", "in_progress", "completed", "closed"].includes(r.status)
+            ).length,
+            rejected_bookings: bRows.filter((r) => r.status === "rejected").length,
+            completed_bookings: bRows.filter((r) => ["completed", "closed"].includes(r.status)).length,
+            total_fuel_requests: fRows.length,
+            total_fuel_amount: fRows.reduce((s, r) => s + (r.amount ?? 0), 0),
+            total_fuel_liters: fRows.reduce((s, r) => s + (r.liters ?? 0), 0),
+            total_maintenance: mRows.length,
+            active_vehicles: vRows.length,
+            active_drivers: 0,
+          };
 
-    setKpi({
-      total_bookings: bRows.length,
-      approved_bookings: bRows.filter((r) =>
-        ["approved", "dispatched", "in_progress", "completed", "closed"].includes(r.status)
-      ).length,
-      rejected_bookings: bRows.filter((r) => r.status === "rejected").length,
-      completed_bookings: bRows.filter((r) => ["completed", "closed"].includes(r.status)).length,
-      total_fuel_requests: fRows.length,
-      total_fuel_amount: fRows.reduce((s, r) => s + (r.amount ?? 0), 0),
-      total_fuel_liters: fRows.reduce((s, r) => s + (r.liters ?? 0), 0),
-      total_maintenance: mRows.length,
-      active_vehicles: vRows.length,
-      active_drivers: 0,
-    });
+          return {
+            bookings: bRows,
+            fuel: fRows,
+            maint: mRows,
+            utilization: vRows,
+            kpi: nextKpi,
+          };
+        },
+        force
+      );
 
-    setLoading(false);
+      setBookings(result.bookings);
+      setFuel(result.fuel);
+      setMaint(result.maint);
+      setUtilization(result.utilization);
+      setKpi(result.kpi);
+    } catch (e) {
+      console.error("ReportsDashboard load error:", e);
+    } finally {
+      setLoading(false);
+    }
   }, [period]);
 
   const { label } = getPeriodRange(period);
 
-  const topInsight = (() => {
+  const topInsight = useMemo(() => {
     if (!kpi) return "";
 
     if (kpi.rejected_bookings > 0) {
@@ -476,7 +483,7 @@ export default function ReportsDashboard() {
     }
 
     return "System running normally";
-  })();
+  }, [kpi]);
 
   useEffect(() => {
     void load();
@@ -485,56 +492,66 @@ export default function ReportsDashboard() {
   useRealtimeRefresh({
     channel: "reports_dashboard_realtime",
     tables: ["bookings", "fuel_requests", "maintenance_requests"],
-    onRefresh: load,
+    onRefresh: () => void load(true),
   });
 
-  const bookingStatusData = [
-    {
-      label: "Completed",
-      value: kpi?.completed_bookings ?? 0,
-      color: "var(--green)",
-    },
-    {
-      label: "Approved",
-      value: bookings.filter((b) => b.status === "approved").length,
-      color: "var(--accent)",
-    },
-    {
-      label: "Rejected",
-      value: kpi?.rejected_bookings ?? 0,
-      color: "var(--red)",
-    },
-    {
-      label: "Pending",
-      value: bookings.filter((b) => ["draft", "submitted"].includes(b.status)).length,
-      color: "var(--amber)",
-    },
-  ];
+  const bookingStatusData = useMemo(
+    () => [
+      {
+        label: "Completed",
+        value: kpi?.completed_bookings ?? 0,
+        color: "var(--green)",
+      },
+      {
+        label: "Approved",
+        value: bookings.filter((b) => b.status === "approved").length,
+        color: "var(--accent)",
+      },
+      {
+        label: "Rejected",
+        value: kpi?.rejected_bookings ?? 0,
+        color: "var(--red)",
+      },
+      {
+        label: "Pending",
+        value: bookings.filter((b) => ["draft", "submitted"].includes(b.status)).length,
+        color: "var(--amber)",
+      },
+    ],
+    [bookings, kpi]
+  );
 
-  const typeCount: Record<string, number> = {};
-  for (const b of bookings) {
-    typeCount[b.booking_type] = (typeCount[b.booking_type] ?? 0) + 1;
-  }
+  const typeCount = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const b of bookings) {
+      const key = b.booking_type || "unknown";
+      map[key] = (map[key] ?? 0) + 1;
+    }
+    return map;
+  }, [bookings]);
 
-  const maxType = Math.max(...Object.values(typeCount), 1);
+  const maxType = useMemo(() => Math.max(...Object.values(typeCount), 1), [typeCount]);
 
-  const maintStatusData = [
-    {
-      label: "Reported",
-      value: maint.filter((m) => m.status === "reported").length,
-      color: "var(--amber)",
-    },
-    {
-      label: "In Progress",
-      value: maint.filter((m) => m.status === "in_progress").length,
-      color: "var(--accent)",
-    },
-    {
-      label: "Completed",
-      value: maint.filter((m) => ["completed", "closed"].includes(m.status)).length,
-      color: "var(--green)",
-    },
-  ];
+  const maintStatusData = useMemo(
+    () => [
+      {
+        label: "Reported",
+        value: maint.filter((m) => m.status === "reported").length,
+        color: "var(--amber)",
+      },
+      {
+        label: "In Progress",
+        value: maint.filter((m) => m.status === "in_progress").length,
+        color: "var(--accent)",
+      },
+      {
+        label: "Completed",
+        value: maint.filter((m) => ["completed", "closed"].includes(m.status)).length,
+        color: "var(--green)",
+      },
+    ],
+    [maint]
+  );
 
   const periods: { value: Period; label: string }[] = [
     { value: "week", label: "This Week" },
@@ -847,10 +864,7 @@ export default function ReportsDashboard() {
                       <td>
                         <Badge status={m.status} />
                       </td>
-                      <td
-                        className="text-xs whitespace-nowrap"
-                        style={{ color: "var(--text-muted)" }}
-                      >
+                      <td className="text-xs whitespace-nowrap" style={{ color: "var(--text-muted)" }}>
                         {m.created_at.slice(0, 10)}
                       </td>
                     </tr>

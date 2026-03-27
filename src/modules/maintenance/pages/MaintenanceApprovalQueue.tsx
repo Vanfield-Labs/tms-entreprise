@@ -37,6 +37,7 @@ export default function MaintenanceApprovalQueue() {
   const [acting, setActing] = useState<Record<string, boolean>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [focusedMaintenanceId, setFocusedMaintenanceId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -63,16 +64,37 @@ export default function MaintenanceApprovalQueue() {
     void load();
   }, [load]);
 
-  const debouncedReload = useMemo(
-    () => debounce(() => void load(), 400),
-    [load]
-  );
+  const debouncedReload = useMemo(() => debounce(() => void load(), 400), [load]);
 
   useRealtimeTable({
     table: "maintenance_requests",
     event: "*",
     onChange: debouncedReload,
   });
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ entityType?: string; entityId?: string | null }>).detail;
+      if (!detail?.entityId) return;
+      if (detail.entityType !== "maintenance") return;
+
+      setFocusedMaintenanceId(detail.entityId);
+      setExpanded(detail.entityId);
+
+      window.setTimeout(() => {
+        document
+          .getElementById(`maintenance-request-${detail.entityId}`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 120);
+
+      window.setTimeout(() => {
+        setFocusedMaintenanceId((prev) => (prev === detail.entityId ? null : prev));
+      }, 4500);
+    };
+
+    window.addEventListener("tms:entity-focus", handler);
+    return () => window.removeEventListener("tms:entity-focus", handler);
+  }, []);
 
   const act = async (id: string, action: "approved" | "rejected") => {
     setActing((m) => ({ ...m, [id]: true }));
@@ -101,12 +123,8 @@ export default function MaintenanceApprovalQueue() {
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <CountPill n={requests.length} color="amber" />
-        <span
-          className="text-sm"
-          style={{ color: "var(--text-muted)" }}
-        >
-          maintenance request
-          {requests.length !== 1 ? "s" : ""} awaiting approval
+        <span className="text-sm" style={{ color: "var(--text-muted)" }}>
+          maintenance request{requests.length !== 1 ? "s" : ""} awaiting approval
         </span>
       </div>
 
@@ -119,166 +137,143 @@ export default function MaintenanceApprovalQueue() {
         <div className="space-y-3">
           {requests.map((r) => {
             const isOpen = expanded === r.id;
+            const isFocused = focusedMaintenanceId === r.id;
 
             return (
-              <Card key={r.id}>
-                <button
-                  className="w-full text-left px-4 py-3"
-                  onClick={() =>
-                    setExpanded(isOpen ? null : r.id)
-                  }
+            <div key={r.id} id={`maintenance-request-${r.id}`}>
+  <Card className={isFocused ? "transition-all duration-300" : undefined}>
+                <div
+                  style={{
+                    boxShadow: isFocused
+                      ? "0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent), 0 18px 40px rgba(0,0,0,0.12)"
+                      : undefined,
+                    transition: "all 0.3s ease",
+                    borderRadius: 16,
+                  }}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p
-                          className="font-semibold text-sm"
-                          style={{ color: "var(--text)" }}
-                        >
-                          {r.vehicles?.plate_number ?? "—"} —{" "}
-                          {(r.issue_type ?? "other").replace(
-                            "_",
-                            " "
+                  <button
+                    className="w-full text-left px-4 py-3"
+                    onClick={() => setExpanded(isOpen ? null : r.id)}
+                    style={{
+                      background: isFocused
+                        ? "color-mix(in srgb, var(--accent-dim) 28%, transparent)"
+                        : "transparent",
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-semibold text-sm" style={{ color: "var(--text)" }}>
+                            {r.vehicles?.plate_number ?? "—"} — {(r.issue_type ?? "other").replace("_", " ")}
+                          </p>
+
+                          {r.requested_by_supervisor && (
+                            <span
+                              className="text-xs px-1.5 py-0.5 rounded font-medium"
+                              style={{ background: "var(--accent-dim)", color: "var(--accent)" }}
+                            >
+                              Supervisor Request
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                          {r.reporter?.full_name ?? "—"} · {fmtDate(r.created_at)}
+                          {r.priority && r.priority !== "normal" && (
+                            <span
+                              className="ml-2 font-semibold capitalize"
+                              style={{
+                                color:
+                                  r.priority === "critical"
+                                    ? "var(--red)"
+                                    : r.priority === "high"
+                                    ? "var(--amber)"
+                                    : "var(--text-dim)",
+                              }}
+                            >
+                              · {r.priority}
+                            </span>
                           )}
                         </p>
+                      </div>
 
-                        {r.requested_by_supervisor && (
-                          <span
-                            className="text-xs px-1.5 py-0.5 rounded font-medium"
-                            style={{
-                              background: "var(--accent-dim)",
-                              color: "var(--accent)",
-                            }}
-                          >
-                            Supervisor Request
-                          </span>
+                      <Badge status={r.status} label="Pending" />
+                    </div>
+                  </button>
+
+                  {isOpen && (
+                    <div
+                      className="px-4 pb-4 space-y-3 border-t"
+                      style={{ borderColor: "var(--border)" }}
+                    >
+                      <p className="text-sm pt-3" style={{ color: "var(--text)" }}>
+                        {r.issue_description}
+                      </p>
+
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        {r.estimated_cost != null && (
+                          <div>
+                            <span style={{ color: "var(--text-dim)" }}>Estimated Cost</span>
+                            <p className="font-semibold" style={{ color: "var(--text)" }}>
+                              {fmtMoney(r.estimated_cost)}
+                            </p>
+                          </div>
+                        )}
+
+                        {r.scheduled_date && (
+                          <div>
+                            <span style={{ color: "var(--text-dim)" }}>Scheduled Date</span>
+                            <p className="font-semibold" style={{ color: "var(--text)" }}>
+                              {fmtDate(r.scheduled_date)}
+                            </p>
+                          </div>
                         )}
                       </div>
 
-                      <p
-                        className="text-xs mt-0.5"
-                        style={{ color: "var(--text-muted)" }}
-                      >
-                        {r.reporter?.full_name ?? "—"} ·{" "}
-                        {fmtDate(r.created_at)}
-
-                        {r.priority && r.priority !== "normal" && (
-                          <span
-                            className="ml-2 font-semibold capitalize"
-                            style={{
-                              color:
-                                r.priority === "critical"
-                                  ? "var(--red)"
-                                  : r.priority === "high"
-                                  ? "var(--amber)"
-                                  : "var(--text-dim)",
-                            }}
-                          >
-                            · {r.priority}
-                          </span>
-                        )}
-                      </p>
-                    </div>
-
-                    <Badge status={r.status} label="Pending" />
-                  </div>
-                </button>
-
-                {isOpen && (
-                  <div
-                    className="px-4 pb-4 space-y-3 border-t"
-                    style={{ borderColor: "var(--border)" }}
-                  >
-                    <p
-                      className="text-sm pt-3"
-                      style={{ color: "var(--text)" }}
-                    >
-                      {r.issue_description}
-                    </p>
-
-                    <div className="grid grid-cols-2 gap-3 text-xs">
-                      {r.estimated_cost != null && (
-                        <div>
-                          <span
-                            style={{ color: "var(--text-dim)" }}
-                          >
-                            Estimated Cost
-                          </span>
-                          <p
-                            className="font-semibold"
-                            style={{ color: "var(--text)" }}
-                          >
-                            {fmtMoney(r.estimated_cost)}
-                          </p>
-                        </div>
+                      {r.notes && (
+                        <p className="text-xs italic" style={{ color: "var(--text-muted)" }}>
+                          {r.notes}
+                        </p>
                       )}
 
-                      {r.scheduled_date && (
-                        <div>
-                          <span
-                            style={{ color: "var(--text-dim)" }}
-                          >
-                            Scheduled Date
-                          </span>
-                          <p
-                            className="font-semibold"
-                            style={{ color: "var(--text)" }}
-                          >
-                            {fmtDate(r.scheduled_date)}
-                          </p>
-                        </div>
-                      )}
+                      <Field label="Comment">
+                        <Textarea
+                          rows={2}
+                          placeholder="Optional comment…"
+                          value={notes[r.id] ?? ""}
+                          onChange={(e) =>
+                            setNotes((m) => ({
+                              ...m,
+                              [r.id]: e.target.value,
+                            }))
+                          }
+                        />
+                      </Field>
+
+                      <div className="flex gap-2">
+                        <Btn
+                          variant="success"
+                          size="sm"
+                          loading={acting[r.id]}
+                          onClick={() => act(r.id, "approved")}
+                        >
+                          Approve
+                        </Btn>
+
+                        <Btn
+                          variant="danger"
+                          size="sm"
+                          loading={acting[r.id]}
+                          onClick={() => act(r.id, "rejected")}
+                        >
+                          Reject
+                        </Btn>
+                      </div>
                     </div>
-
-                    {r.notes && (
-                      <p
-                        className="text-xs italic"
-                        style={{ color: "var(--text-muted)" }}
-                      >
-                        {r.notes}
-                      </p>
-                    )}
-
-                    <Field label="Comment">
-                      <Textarea
-                        rows={2}
-                        placeholder="Optional comment…"
-                        value={notes[r.id] ?? ""}
-                        onChange={(e) =>
-                          setNotes((m) => ({
-                            ...m,
-                            [r.id]: e.target.value,
-                          }))
-                        }
-                      />
-                    </Field>
-
-                    <div className="flex gap-2">
-                      <Btn
-                        variant="success"
-                        size="sm"
-                        loading={acting[r.id]}
-                        onClick={() =>
-                          act(r.id, "approved")
-                        }
-                      >
-                        Approve
-                      </Btn>
-
-                      <Btn
-                        variant="danger"
-                        size="sm"
-                        loading={acting[r.id]}
-                        onClick={() =>
-                          act(r.id, "rejected")
-                        }
-                      >
-                        Reject
-                      </Btn>
-                    </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </Card>
+              </div>
             );
           })}
         </div>

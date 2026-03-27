@@ -1,7 +1,7 @@
 // src/modules/reports/pages/KPIDashboard.tsx
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabase, cachedFetch } from "@/lib/supabase";
 import { Card, EmptyState, PageSpinner, StatCard } from "@/components/TmsUI";
 import { useRealtimeTable } from "@/hooks/useRealtimeTable";
 import { debounce } from "@/lib/debounce";
@@ -367,51 +367,67 @@ function HorizontalCompare({
 
 export default function KPIDashboard() {
   const [loading, setLoading] = useState(true);
-
   const [bookings, setBookings] = useState<BookingLite[]>([]);
   const [fuel, setFuel] = useState<FuelLite[]>([]);
   const [maintenance, setMaintenance] = useState<MaintenanceLite[]>([]);
   const [vehicles, setVehicles] = useState<VehicleLite[]>([]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setLoading(true);
 
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
-    sixMonthsAgo.setDate(1);
-    sixMonthsAgo.setHours(0, 0, 0, 0);
+    try {
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
+      sixMonthsAgo.setDate(1);
+      sixMonthsAgo.setHours(0, 0, 0, 0);
+      const since = sixMonthsAgo.toISOString();
 
-    const [
-      { data: bookingsData, error: bookingsError },
-      { data: fuelData, error: fuelError },
-      { data: maintenanceData, error: maintenanceError },
-      { data: vehiclesData, error: vehiclesError },
-    ] = await Promise.all([
-      supabase
-        .from("bookings")
-        .select("id,status,created_at")
-        .gte("created_at", sixMonthsAgo.toISOString()),
-      supabase
-        .from("fuel_requests")
-        .select("id,status,created_at,estimated_cost")
-        .gte("created_at", sixMonthsAgo.toISOString()),
-      supabase
-        .from("maintenance_requests")
-        .select("id,status,created_at,estimated_cost")
-        .gte("created_at", sixMonthsAgo.toISOString()),
-      supabase.from("vehicles").select("id,status"),
-    ]);
+      const data = await cachedFetch(
+        "kpi_dashboard_6m",
+        async () => {
+          const [
+            { data: bookingsData, error: bookingsError },
+            { data: fuelData, error: fuelError },
+            { data: maintenanceData, error: maintenanceError },
+            { data: vehiclesData, error: vehiclesError },
+          ] = await Promise.all([
+            supabase
+              .from("bookings")
+              .select("id,status,created_at")
+              .gte("created_at", since),
+            supabase
+              .from("fuel_requests")
+              .select("id,status,created_at,estimated_cost")
+              .gte("created_at", since),
+            supabase
+              .from("maintenance_requests")
+              .select("id,status,created_at,estimated_cost")
+              .gte("created_at", since),
+            supabase.from("vehicles").select("id,status"),
+          ]);
 
-    if (bookingsError) console.error("KPI bookings load:", bookingsError.message);
-    if (fuelError) console.error("KPI fuel load:", fuelError.message);
-    if (maintenanceError) console.error("KPI maintenance load:", maintenanceError.message);
-    if (vehiclesError) console.error("KPI vehicles load:", vehiclesError.message);
+          if (bookingsError) console.error("KPI bookings load:", bookingsError.message);
+          if (fuelError) console.error("KPI fuel load:", fuelError.message);
+          if (maintenanceError) console.error("KPI maintenance load:", maintenanceError.message);
+          if (vehiclesError) console.error("KPI vehicles load:", vehiclesError.message);
 
-    setBookings((bookingsData as BookingLite[]) || []);
-    setFuel((fuelData as FuelLite[]) || []);
-    setMaintenance((maintenanceData as MaintenanceLite[]) || []);
-    setVehicles((vehiclesData as VehicleLite[]) || []);
-    setLoading(false);
+          return {
+            bookings: (bookingsData as BookingLite[]) || [],
+            fuel: (fuelData as FuelLite[]) || [],
+            maintenance: (maintenanceData as MaintenanceLite[]) || [],
+            vehicles: (vehiclesData as VehicleLite[]) || [],
+          };
+        },
+        force
+      );
+
+      setBookings(data.bookings);
+      setFuel(data.fuel);
+      setMaintenance(data.maintenance);
+      setVehicles(data.vehicles);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -419,7 +435,7 @@ export default function KPIDashboard() {
   }, [load]);
 
   const debouncedReload = useMemo(
-    () => debounce(() => void load(), 450),
+    () => debounce(() => void load(true), 450),
     [load]
   );
 

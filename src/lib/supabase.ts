@@ -26,3 +26,20 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     },
   },
 });
+
+import { getCache, setCache } from "./cache";
+
+export async function cachedFetch<T>(
+  key: string,
+  fetcher: () => Promise<T>,
+  force = false
+): Promise<T> {
+  if (!force) {
+    const cached = getCache<T>(key);
+    if (cached) return cached;
+  }
+
+  const data = await fetcher();
+  setCache(key, data);
+  return data;
+}
