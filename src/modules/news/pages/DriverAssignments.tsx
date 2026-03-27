@@ -1,12 +1,11 @@
 // src/modules/news/pages/DriverAssignments.tsx
-// Drivers see all news assignments they are part of.
-// Uses get_driver_assignments() RPC (SECURITY DEFINER) so profiles of
-// reporter and camera tech are readable regardless of driver RLS restrictions.
-import { useCallback, useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { supabase, cachedFetch } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { PageSpinner, EmptyState, Badge, Card, TabBar } from "@/components/TmsUI";
 import { fmtDate } from "@/lib/utils";
+import { useRealtimeTable } from "@/hooks/useRealtimeTable";
+import { debounce } from "@/lib/debounce";
 
 type Assignment = {
   id: string;
@@ -28,49 +27,77 @@ type Assignment = {
 
 type Tab = "today" | "upcoming" | "past";
 
-function fmtTime(t: string | null) { return t ? t.slice(0, 5) : "—"; }
+function fmtTime(t: string | null) {
+  return t ? t.slice(0, 5) : "—";
+}
 
 export default function DriverAssignments() {
   const { user } = useAuth();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [loading, setLoading]         = useState(true);
-  const [tab, setTab]                 = useState<Tab>("today");
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<Tab>("today");
 
   const today = new Date().toISOString().slice(0, 10);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     if (!user?.id) return;
     setLoading(true);
+
     try {
-      // RPC is SECURITY DEFINER — reads reporter + camera tech profiles
-      // even though driver RLS normally blocks cross-profile reads
-      const { data, error } = await supabase.rpc("get_driver_assignments");
-      if (error) throw error;
-      setAssignments((data as Assignment[]) || []);
+      const data = await cachedFetch<Assignment[]>(
+        `driver_assignments:${user.id}`,
+        async () => {
+          const { data, error } = await supabase.rpc("get_driver_assignments");
+          if (error) throw error;
+          return (data as Assignment[]) || [];
+        },
+        force
+      );
+
+      setAssignments(data);
+      localStorage.setItem(`driver_assignments_cache:${user.id}`, JSON.stringify(data));
     } catch (e: any) {
       console.error("DriverAssignments load:", e.message);
+      try {
+        const fallback = localStorage.getItem(`driver_assignments_cache:${user.id}`);
+        if (fallback) setAssignments(JSON.parse(fallback));
+      } catch {}
     } finally {
       setLoading(false);
     }
   }, [user?.id]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-  const filtered = assignments.filter(a =>
-    tab === "today"    ? a.assignment_date === today :
-    tab === "upcoming" ? a.assignment_date > today :
-                         a.assignment_date < today
+  const debouncedReload = useMemo(() => debounce(() => void load(true), 450), [load]);
+
+  useRealtimeTable({
+    table: "news_assignments",
+    event: "*",
+    enabled: !!user?.id,
+    onChange: debouncedReload,
+  });
+
+  const filtered = assignments.filter((a) =>
+    tab === "today"
+      ? a.assignment_date === today
+      : tab === "upcoming"
+      ? a.assignment_date > today
+      : a.assignment_date < today
   );
 
   const tabs: { value: Tab; label: string }[] = [
-    { value: "today",    label: "Today" },
+    { value: "today", label: "Today" },
     { value: "upcoming", label: "Upcoming" },
-    { value: "past",     label: "Past" },
+    { value: "past", label: "Past" },
   ];
+
   const counts = {
-    today:    assignments.filter(a => a.assignment_date === today).length,
-    upcoming: assignments.filter(a => a.assignment_date > today).length,
-    past:     assignments.filter(a => a.assignment_date < today).length,
+    today: assignments.filter((a) => a.assignment_date === today).length,
+    upcoming: assignments.filter((a) => a.assignment_date > today).length,
+    past: assignments.filter((a) => a.assignment_date < today).length,
   };
 
   if (loading) return <PageSpinner />;
@@ -82,36 +109,38 @@ export default function DriverAssignments() {
         <p className="page-sub">News unit deployments you are assigned to</p>
       </div>
 
-      {/* Summary stats */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: "Today",    value: counts.today,    color: "var(--accent)"     },
-          { label: "Upcoming", value: counts.upcoming, color: "var(--green)"      },
-          { label: "Past",     value: counts.past,     color: "var(--text-muted)" },
-        ].map(s => (
+          { label: "Today", value: counts.today, color: "var(--accent)" },
+          { label: "Upcoming", value: counts.upcoming, color: "var(--green)" },
+          { label: "Past", value: counts.past, color: "var(--text-muted)" },
+        ].map((s) => (
           <div key={s.label} className="stat-card text-center">
-            <div className="stat-value" style={{ color: s.color }}>{s.value}</div>
+            <div className="stat-value" style={{ color: s.color }}>
+              {s.value}
+            </div>
             <div className="stat-label">{s.label}</div>
           </div>
         ))}
       </div>
 
-      <TabBar tabs={tabs} active={tab} onChange={setTab} counts={counts} />
+      <TabBar tabs={tabs} active={tab} onChange={(v) => setTab(v as Tab)} counts={counts} />
 
       {filtered.length === 0 ? (
         <EmptyState
           title={
-            tab === "today"    ? "No assignments today" :
-            tab === "upcoming" ? "No upcoming assignments" :
-                                 "No past assignments"
+            tab === "today"
+              ? "No assignments today"
+              : tab === "upcoming"
+              ? "No upcoming assignments"
+              : "No past assignments"
           }
           subtitle="Assignments from news units will appear here when you are assigned"
         />
       ) : (
         <div className="space-y-3">
-          {filtered.map(a => (
+          {filtered.map((a) => (
             <Card key={a.id}>
-              {/* Header */}
               <div
                 className="px-4 py-3 border-b"
                 style={{
@@ -130,7 +159,7 @@ export default function DriverAssignments() {
                     </div>
                     <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
                       {a.unit_name} · {fmtDate(a.assignment_date)}
-                      {a.call_time      && ` · Call: ${fmtTime(a.call_time)}`}
+                      {a.call_time && ` · Call: ${fmtTime(a.call_time)}`}
                       {a.departure_time && ` · Depart: ${fmtTime(a.departure_time)}`}
                     </p>
                   </div>
@@ -138,35 +167,54 @@ export default function DriverAssignments() {
                 </div>
               </div>
 
-              {/* Full team */}
               <div className="px-4 py-4 grid grid-cols-3 gap-3">
                 {[
-                  { icon: "🎤", label: "Reporter",    val: a.reporter_name,     sub: null,                 you: false },
-                  { icon: "📷", label: "Camera Tech", val: a.camera_tech_name,  sub: a.camera_tech_phone,  you: false },
-                  { icon: "🚗", label: "Driver",      val: a.driver_name,       sub: null,                 you: true  },
-                ].map(m => (
+                  { icon: "🎤", label: "Reporter", val: a.reporter_name, sub: null, you: false },
+                  {
+                    icon: "📷",
+                    label: "Camera Tech",
+                    val: a.camera_tech_name,
+                    sub: a.camera_tech_phone,
+                    you: false,
+                  },
+                  { icon: "🚗", label: "Driver", val: a.driver_name, sub: null, you: true },
+                ].map((m) => (
                   <div key={m.label} style={{ textAlign: "center" }}>
                     <div style={{ fontSize: 20 }}>{m.icon}</div>
-                    <div style={{
-                      fontSize: 10, color: "var(--text-dim)",
-                      textTransform: "uppercase", marginTop: 2,
-                    }}>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: "var(--text-dim)",
+                        textTransform: "uppercase",
+                        marginTop: 2,
+                      }}
+                    >
                       {m.label}
                     </div>
-                    <div style={{
-                      fontSize: 12, fontWeight: 700, marginTop: 2,
-                      color: m.you ? "var(--accent)" : "var(--text)",
-                    }}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        marginTop: 2,
+                        color: m.you ? "var(--accent)" : "var(--text)",
+                      }}
+                    >
                       {m.val ?? "—"}
                     </div>
                     {m.you && m.val && (
-                      <div style={{ fontSize: 9, color: "var(--accent)", fontWeight: 500 }}>(you)</div>
+                      <div style={{ fontSize: 9, color: "var(--accent)", fontWeight: 500 }}>
+                        (you)
+                      </div>
                     )}
                     {m.sub && (
-                      <div style={{
-                        fontSize: 11, color: "var(--accent)",
-                        fontFamily: "'IBM Plex Mono', monospace", marginTop: 2,
-                      }}>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "var(--accent)",
+                          fontFamily: "'IBM Plex Mono', monospace",
+                          marginTop: 2,
+                        }}
+                      >
                         {m.sub}
                       </div>
                     )}
@@ -174,7 +222,6 @@ export default function DriverAssignments() {
                 ))}
               </div>
 
-              {/* GPS link + notes */}
               {(a.gps_address || a.notes) && (
                 <div
                   className="px-4 pb-4 space-y-1 pt-2"
@@ -186,8 +233,11 @@ export default function DriverAssignments() {
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{
-                        fontSize: 13, color: "var(--accent)",
-                        display: "flex", alignItems: "center", gap: 6,
+                        fontSize: 13,
+                        color: "var(--accent)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
                       }}
                     >
                       <span>📍</span>

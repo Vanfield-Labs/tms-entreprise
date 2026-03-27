@@ -1,8 +1,11 @@
 // src/modules/fuel/pages/MyFuelRequests.tsx
-import { useEffect, useState } from "react";
+
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { fmtDate, fmtMoney } from "@/lib/utils";
 import { PageSpinner, EmptyState, Badge, Card, SearchInput } from "@/components/TmsUI";
+import { useRealtimeTable } from "@/hooks/useRealtimeTable";
+import { debounce } from "@/lib/debounce";
 
 type FuelRequest = {
   id: string;
@@ -20,59 +23,66 @@ type FuelRequest = {
 };
 
 const STATUS_LABEL: Record<string, string> = {
-  draft:     "Draft",
+  draft: "Draft",
   submitted: "Submitted",
-  approved:  "Approved",
-  rejected:  "Rejected",
-  recorded:  "Received",
+  approved: "Approved",
+  rejected: "Rejected",
+  recorded: "Received",
 };
 
 const STATUS_ICON: Record<string, string> = {
-  draft:     "✏️",
+  draft: "✏️",
   submitted: "⏳",
-  approved:  "✅",
-  rejected:  "❌",
-  recorded:  "⛽",
+  approved: "✅",
+  rejected: "❌",
+  recorded: "⛽",
 };
 
 const FILTERS = ["all", "submitted", "approved", "recorded", "rejected", "draft"];
 
 export default function MyFuelRequests() {
-  const [rows,        setRows]        = useState<FuelRequest[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [statusFilter,setStatusFilter]= useState("all");
-  const [q,           setQ]           = useState("");
+  const [rows, setRows] = useState<FuelRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [q, setQ] = useState("");
 
-  // ── Load: use created_by (RLS policy) ────────────────────────────────────
-  // The RLS SELECT policy on fuel_requests is:
-  //   created_by = auth.uid()  OR  role IN (admin, transport_supervisor, corporate_approver)
-  // So we simply query all — RLS filters to the user's own rows automatically.
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
+
     const { data, error } = await supabase
       .from("fuel_requests")
-      .select("id,status,purpose,notes,liters,amount,mileage,vendor,receipt_url,request_date,created_at,vehicles(plate_number,fuel_type)")
+      .select(
+        "id,status,purpose,notes,liters,amount,mileage,vendor,receipt_url,request_date,created_at,vehicles(plate_number,fuel_type)"
+      )
       .order("created_at", { ascending: false })
       .limit(300);
 
     if (error) console.error("MyFuelRequests load:", error.message);
+
     setRows((data as unknown as FuelRequest[]) || []);
     setLoading(false);
-  };
-
-  useEffect(() => {
-    load();
-    const ch = supabase
-      .channel("my_fuel_realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "fuel_requests" }, load)
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
   }, []);
 
-  const filtered = rows.filter(r => {
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const debouncedReload = useMemo(() => debounce(() => void load(), 350), [load]);
+
+  useRealtimeTable({
+    table: "fuel_requests",
+    event: "*",
+    onChange: debouncedReload,
+  });
+
+  const filtered = rows.filter((r) => {
     const matchStatus = statusFilter === "all" || r.status === statusFilter;
-    const matchQ = !q || (r.purpose ?? "").toLowerCase().includes(q.toLowerCase())
-      || (r.vehicles?.plate_number ?? "").toLowerCase().includes(q.toLowerCase());
+    const needle = q.toLowerCase();
+    const matchQ =
+      !q ||
+      (r.purpose ?? "").toLowerCase().includes(needle) ||
+      (r.vehicles?.plate_number ?? "").toLowerCase().includes(needle);
+
     return matchStatus && matchQ;
   });
 
@@ -80,7 +90,6 @@ export default function MyFuelRequests() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="page-header">
         <div>
           <h1 className="page-title">My Fuel Requests</h1>
@@ -90,7 +99,6 @@ export default function MyFuelRequests() {
         </div>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-2">
         <div className="sm:w-64">
           <SearchInput
@@ -99,8 +107,9 @@ export default function MyFuelRequests() {
             placeholder="Search purpose, vehicle…"
           />
         </div>
+
         <div className="flex gap-1 flex-wrap">
-          {FILTERS.map(f => (
+          {FILTERS.map((f) => (
             <button
               key={f}
               onClick={() => setStatusFilter(f)}
@@ -114,7 +123,7 @@ export default function MyFuelRequests() {
               {f === "all" ? "All" : STATUS_LABEL[f] ?? f}
               {f !== "all" && (
                 <span className="ml-1 opacity-70">
-                  {rows.filter(r => r.status === f).length}
+                  {rows.filter((r) => r.status === f).length}
                 </span>
               )}
             </button>
@@ -125,15 +134,16 @@ export default function MyFuelRequests() {
       {filtered.length === 0 ? (
         <EmptyState
           title="No requests found"
-          subtitle={statusFilter === "all"
-            ? "You haven't submitted any fuel requests yet."
-            : `No ${STATUS_LABEL[statusFilter] ?? statusFilter} requests.`}
+          subtitle={
+            statusFilter === "all"
+              ? "You haven't submitted any fuel requests yet."
+              : `No ${STATUS_LABEL[statusFilter] ?? statusFilter} requests.`
+          }
         />
       ) : (
         <>
-          {/* ── Mobile cards ── */}
           <div className="sm:hidden space-y-3">
-            {filtered.map(r => (
+            {filtered.map((r) => (
               <Card key={r.id}>
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-2 mb-3">
@@ -181,10 +191,25 @@ export default function MyFuelRequests() {
                     {r.vendor && (
                       <div className="col-span-2">
                         <span style={{ color: "var(--text-dim)" }}>Vendor</span>
-                        <p className="font-medium" style={{ color: "var(--text)" }}>{r.vendor}</p>
+                        <p className="font-medium" style={{ color: "var(--text)" }}>
+                          {r.vendor}
+                        </p>
                       </div>
                     )}
                   </div>
+
+                  {r.notes && (
+                    <div
+                      className="mt-3 rounded-lg px-3 py-2 text-xs"
+                      style={{
+                        background: "var(--surface-2)",
+                        border: "1px solid var(--border)",
+                        color: "var(--text-muted)",
+                      }}
+                    >
+                      {r.notes}
+                    </div>
+                  )}
 
                   {r.receipt_url && (
                     <a
@@ -202,7 +227,6 @@ export default function MyFuelRequests() {
             ))}
           </div>
 
-          {/* ── Desktop table ── */}
           <div className="hidden sm:block card overflow-hidden">
             <div className="overflow-x-auto">
               <table className="tms-table">
@@ -220,28 +244,41 @@ export default function MyFuelRequests() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(r => (
+                  {filtered.map((r) => (
                     <tr key={r.id}>
-                      <td className="font-medium max-w-[180px] truncate">{r.purpose || "—"}</td>
+                      <td>
+                        <div className="font-medium">{r.purpose || "Fuel Request"}</div>
+                        {r.vendor && (
+                          <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                            {r.vendor}
+                          </div>
+                        )}
+                      </td>
                       <td>{r.vehicles?.plate_number ?? "—"}</td>
                       <td className="capitalize">{r.vehicles?.fuel_type ?? "—"}</td>
-                      <td>{r.liters != null ? `${r.liters}L` : <span style={{ color: "var(--text-dim)" }}>Pending</span>}</td>
-                      <td>{r.amount != null ? fmtMoney(r.amount) : <span style={{ color: "var(--text-dim)" }}>Pending</span>}</td>
+                      <td>{r.liters != null ? `${r.liters}L` : "Pending"}</td>
+                      <td>{r.amount != null ? fmtMoney(r.amount) : "Pending"}</td>
                       <td>{r.mileage != null ? `${r.mileage.toLocaleString()} km` : "—"}</td>
                       <td>
-                        <Badge status={r.status} label={STATUS_LABEL[r.status]} />
+                        <div className="flex items-center gap-1.5">
+                          <span>{STATUS_ICON[r.status]}</span>
+                          <Badge status={r.status} label={STATUS_LABEL[r.status]} />
+                        </div>
                       </td>
-                      <td className="whitespace-nowrap" style={{ color: "var(--text-muted)" }}>
-                        {fmtDate(r.request_date)}
-                      </td>
+                      <td>{fmtDate(r.request_date)}</td>
                       <td>
-                        {r.receipt_url
-                          ? <a href={r.receipt_url} target="_blank" rel="noopener noreferrer"
-                              className="text-xs font-medium" style={{ color: "var(--accent)" }}>
-                              📄 View
-                            </a>
-                          : <span style={{ color: "var(--text-dim)" }}>—</span>
-                        }
+                        {r.receipt_url ? (
+                          <a
+                            href={r.receipt_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ color: "var(--accent)" }}
+                          >
+                            View
+                          </a>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                     </tr>
                   ))}

@@ -1,3 +1,4 @@
+// src/app/AppShell.tsx
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/context/ThemeContext";
@@ -8,7 +9,6 @@ import { useAuth } from "@/hooks/useAuth";
 const ENTITY_ICON: Record<string, string> = {
   booking: "📅",
   fuel: "⛽",
-  fuel_request: "⛽",
   maintenance: "🛠",
   incident: "⚠️",
   trip: "🚗",
@@ -16,20 +16,8 @@ const ENTITY_ICON: Record<string, string> = {
   default: "🔔",
 };
 
-type ClickNavItem = {
-  label: string;
-  icon?: ReactNode;
-  badge?: number;
-  onClick: () => void;
-};
-
-type ElementNavItem = {
-  label: string;
-  icon?: ReactNode;
-  badge?: number;
-  element: ReactNode;
-};
-
+type ClickNavItem = { label: string; icon?: ReactNode; badge?: number; onClick: () => void };
+type ElementNavItem = { label: string; icon?: ReactNode; badge?: number; element: ReactNode };
 type NavItem = ClickNavItem | ElementNavItem;
 
 type Props = {
@@ -64,30 +52,24 @@ const ROLE_COLORS: Record<string, string> = {
 function NavIcon({ label, collapsed }: { label: string; collapsed: boolean }) {
   const l = label.toLowerCase();
   const size = collapsed ? 18 : 15;
-  const cls = `shrink-0`;
 
-  const icon = (() => {
-    if (l.includes("dispatch")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>;
-    if (l.includes("booking") || l.includes("new booking")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>;
-    if (l.includes("trip")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>;
-    if (l.includes("shift") || l.includes("schedule")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><rect x="3" y="4" width="18" height="18" rx="2"/><path strokeLinecap="round" d="M16 2v4M8 2v4M3 10h18"/></svg>;
-    if (l.includes("mainten")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>;
-    if (l.includes("incident")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>;
-    if (l.includes("fuel")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M5 3h10l2 4v12a1 1 0 01-1 1H6a1 1 0 01-1-1V7L5 3z"/><path strokeLinecap="round" d="M9 11h6"/></svg>;
-    if (l.includes("vehicle") || l.includes("fleet")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z"/><path strokeLinecap="round" strokeLinejoin="round" d="M13 6H5l-2 8h15l-1-5H9l-1 3"/></svg>;
-    if (l.includes("driver")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><circle cx="12" cy="8" r="4"/><path strokeLinecap="round" d="M6 20v-1a6 6 0 0112 0v1"/></svg>;
-    if (l.includes("report") || l.includes("audit") || l.includes("kpi")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>;
-    if (l.includes("user")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0"/></svg>;
-    if (l.includes("mileage")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path strokeLinecap="round" d="M12 8v4l3 3"/></svg>;
-    if (l.includes("division")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>;
-    if (l.includes("approv")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
-    if (l.includes("profile")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>;
-    if (l.includes("close")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>;
-    if (l.includes("record fuel")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>;
-    return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><circle cx="12" cy="12" r="9"/><path strokeLinecap="round" d="M12 8v4l2 2"/></svg>;
-  })();
-
-  return <span className={cls}>{icon}</span>;
+  if (l.includes("dispatch")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>;
+  if (l.includes("booking") || l.includes("new booking")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>;
+  if (l.includes("trip")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>;
+  if (l.includes("shift") || l.includes("schedule")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><rect x="3" y="4" width="18" height="18" rx="2"/><path strokeLinecap="round" d="M16 2v4M8 2v4M3 10h18"/></svg>;
+  if (l.includes("mainten")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>;
+  if (l.includes("incident")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>;
+  if (l.includes("fuel")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M5 3h10l2 4v12a1 1 0 01-1 1H6a1 1 0 01-1-1V7L5 3z"/><path strokeLinecap="round" d="M9 11h6"/></svg>;
+  if (l.includes("vehicle") || l.includes("fleet")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z"/><path strokeLinecap="round" strokeLinejoin="round" d="M13 6H5l-2 8h15l-1-5H9l-1 3"/></svg>;
+  if (l.includes("driver")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><circle cx="12" cy="8" r="4"/><path strokeLinecap="round" d="M6 20v-1a6 6 0 0112 0v1"/></svg>;
+  if (l.includes("report") || l.includes("audit") || l.includes("kpi")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>;
+  if (l.includes("user")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0"/></svg>;
+  if (l.includes("mileage")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path strokeLinecap="round" d="M12 8v4l3 3"/></svg>;
+  if (l.includes("division")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>;
+  if (l.includes("approv")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
+  if (l.includes("profile")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>;
+  if (l.includes("close")) return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>;
+  return <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><circle cx="12" cy="12" r="9"/><path strokeLinecap="round" d="M12 8v4l2 2"/></svg>;
 }
 
 type NotifRow = {
@@ -120,6 +102,7 @@ function NotificationBell({
   const [notifs, setNotifs] = useState<NotifRow[]>([]);
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const prevCountRef = useRef(0);
 
   const load = async () => {
     if (!currentUserId) {
@@ -134,7 +117,16 @@ function NotificationBell({
       .order("created_at", { ascending: false })
       .limit(30);
 
-    setNotifs((data as NotifRow[]) || []);
+    const rows = (data as NotifRow[]) || [];
+
+    if (rows.length > prevCountRef.current) {
+      try {
+        new Audio("/notification.mp3").play().catch(() => {});
+      } catch {}
+    }
+
+    prevCountRef.current = rows.length;
+    setNotifs(rows);
   };
 
   useEffect(() => {
@@ -146,8 +138,6 @@ function NotificationBell({
       setNotifs([]);
       return;
     }
-
-    void load();
 
     const ch = supabase
       .channel(`notif:${currentUserId}`)
@@ -183,20 +173,29 @@ function NotificationBell({
 
   const unread = notifs.filter((n) => !n.is_read).length;
 
-  const markRead = async (
-    id: string,
-    entityType: string | null,
-    entityId: string | null
-  ) => {
+  const grouped = useMemo(() => {
+    const today: NotifRow[] = [];
+    const earlier: NotifRow[] = [];
+    const todayStr = new Date().toDateString();
+
+    notifs.forEach((n) => {
+      if (new Date(n.created_at).toDateString() === todayStr) today.push(n);
+      else earlier.push(n);
+    });
+
+    return { today, earlier };
+  }, [notifs]);
+
+  const openNotification = async (n: NotifRow) => {
+    setNotifs((prev) => prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)));
+
     await supabase
       .from("notifications")
       .update({ is_read: true, read_at: new Date().toISOString() })
-      .eq("id", id);
+      .eq("id", n.id);
 
-    setNotifs((n) => n.map((x) => (x.id === id ? { ...x, is_read: true } : x)));
-
-    if (entityType) {
-      onNavigate(entityType, entityId);
+    if (n.entity_type) {
+      onNavigate(n.entity_type, n.entity_id);
     }
 
     setOpen(false);
@@ -216,10 +215,46 @@ function NotificationBell({
 
   const clearAll = async () => {
     if (!currentUserId) return;
-
     await supabase.from("notifications").delete().eq("recipient_id", currentUserId);
     setNotifs([]);
   };
+
+  const renderItem = (n: NotifRow, i: number) => (
+    <button
+      key={n.id}
+      onClick={() => openNotification(n)}
+      className="w-full text-left px-4 py-3 transition-colors hover:bg-[color:var(--surface-2)]"
+      style={{
+        background: !n.is_read ? "color-mix(in srgb, var(--accent-dim) 35%, transparent)" : "transparent",
+        borderBottom: i >= 0 ? "1px solid var(--border)" : undefined,
+      }}
+    >
+      <div className="flex items-start gap-3">
+        <span className="text-lg shrink-0 mt-0.5">
+          {ENTITY_ICON[n.entity_type ?? "default"] ?? ENTITY_ICON.default}
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-xs font-semibold truncate" style={{ color: "var(--text)" }}>
+              {n.title}
+            </p>
+            {!n.is_read && (
+              <div
+                className="w-2 h-2 rounded-full shrink-0 mt-1"
+                style={{ background: "var(--accent)" }}
+              />
+            )}
+          </div>
+          <p className="text-xs mt-0.5 line-clamp-2" style={{ color: "var(--text-muted)" }}>
+            {n.body}
+          </p>
+          <p className="text-[10px] mt-1 font-mono" style={{ color: "var(--text-dim)" }}>
+            {timeAgo(n.created_at)}
+          </p>
+        </div>
+      </div>
+    </button>
+  );
 
   return (
     <div className="relative" ref={panelRef}>
@@ -291,44 +326,24 @@ function NotificationBell({
                 </p>
               </div>
             ) : (
-              <div className="divide-y" style={{ borderColor: "var(--border)" }}>
-                {notifs.map((n) => (
-                  <button
-                    key={n.id}
-                    onClick={() => markRead(n.id, n.entity_type, n.entity_id)}
-                    className="w-full text-left px-4 py-3 transition-colors hover:bg-[color:var(--surface-2)]"
-                    style={{
-                      background: n.is_read
-                        ? "transparent"
-                        : "color-mix(in srgb, var(--accent-dim) 30%, transparent)",
-                    }}
-                  >
-                    <div className="flex items-start gap-3">
-                      <span className="text-lg shrink-0 mt-0.5">
-                        {ENTITY_ICON[n.entity_type ?? "default"] ?? ENTITY_ICON.default}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-xs font-semibold truncate" style={{ color: "var(--text)" }}>
-                            {n.title}
-                          </p>
-                          {!n.is_read && (
-                            <div
-                              className="w-2 h-2 rounded-full shrink-0 mt-1"
-                              style={{ background: "var(--accent)" }}
-                            />
-                          )}
-                        </div>
-                        <p className="text-xs mt-0.5 line-clamp-2" style={{ color: "var(--text-muted)" }}>
-                          {n.body}
-                        </p>
-                        <p className="text-[10px] mt-1 font-mono" style={{ color: "var(--text-dim)" }}>
-                          {timeAgo(n.created_at)}
-                        </p>
-                      </div>
-                    </div>
-                  </button>
-                ))}
+              <div>
+                {grouped.today.length > 0 && (
+                  <>
+                    <p className="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>
+                      Today
+                    </p>
+                    {grouped.today.map((n, i) => renderItem(n, i))}
+                  </>
+                )}
+
+                {grouped.earlier.length > 0 && (
+                  <>
+                    <p className="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>
+                      Earlier
+                    </p>
+                    {grouped.earlier.map((n, i) => renderItem(n, i))}
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -391,6 +406,7 @@ function ConfirmDialog({
 export default function AppShell({ title, nav, navItems, children }: Props) {
   const { theme, toggleTheme } = useTheme();
   const { user, profile } = useAuth();
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -441,8 +457,7 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
     return [];
   }, [nav, navItems]);
 
-  const hasProfile =
-    items.length > 0 && items[items.length - 1].label.toLowerCase().includes("profile");
+  const hasProfile = items.length > 0 && items[items.length - 1].label.toLowerCase().includes("profile");
   const baseItems = hasProfile ? items.slice(0, -1) : items;
   const isProfileActive = hasProfile && activeIndex === items.length - 1;
 
@@ -466,7 +481,7 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
     window.addEventListener("popstate", onPop);
     window.history.replaceState({ navIndex: activeIndex }, "", window.location.pathname);
     return () => window.removeEventListener("popstate", onPop);
-  }, [items.length]);
+  }, [items.length, activeIndex]);
 
   useEffect(() => {
     const onNavigate = (e: Event) => {
@@ -503,13 +518,10 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
         .eq("id", profile.unit_id)
         .single();
 
-      if (!cancelled) {
-        setUnitName((u as { name?: string } | null)?.name ?? null);
-      }
+      if (!cancelled) setUnitName((u as { name?: string } | null)?.name ?? null);
     };
 
     void loadUnitName();
-
     return () => {
       cancelled = true;
     };
@@ -527,36 +539,38 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
 
     const role = profile.system_role;
     const badges: Record<string, number> = {};
-    const promises: Promise<void>[] = [];
 
     const qCount = async (label: string, table: string, filter: Record<string, string>) => {
       let q = supabase.from(table).select("id", { count: "exact", head: true });
-      for (const [col, val] of Object.entries(filter)) {
-        q = q.eq(col, val);
-      }
+      for (const [col, val] of Object.entries(filter)) q = q.eq(col, val);
       const { count } = await q;
       if (count && count > 0) badges[label] = count;
     };
 
-    if (role === "corporate_approver" || role === "admin") {
-      promises.push(qCount("Booking Approvals", "bookings", { status: "submitted" }));
-      promises.push(qCount("Fuel Approvals", "fuel_requests", { status: "submitted" }));
-      promises.push(qCount("Maintenance Approvals", "maintenance_requests", { status: "reported" }));
-    }
+    const run = async () => {
+      const promises: Promise<void>[] = [];
 
-    if (role === "transport_supervisor" || role === "admin") {
-      promises.push(qCount("Dispatch", "bookings", { status: "approved" }));
-      promises.push(qCount("Record Fuel", "fuel_requests", { status: "approved" }));
-      promises.push(qCount("Close Trips", "bookings", { status: "completed" }));
-    }
+      if (role === "corporate_approver" || role === "admin") {
+        promises.push(qCount("Booking Approvals", "bookings", { status: "submitted" }));
+        promises.push(qCount("Fuel Approvals", "fuel_requests", { status: "submitted" }));
+        promises.push(qCount("Maintenance Approvals", "maintenance_requests", { status: "reported" }));
+      }
 
-    if (role === "admin") {
-      promises.push(qCount("Users", "user_requests", { status: "pending" }));
-    }
+      if (role === "transport_supervisor" || role === "admin") {
+        promises.push(qCount("Dispatch", "bookings", { status: "approved" }));
+        promises.push(qCount("Record Fuel", "fuel_requests", { status: "approved" }));
+        promises.push(qCount("Close Trips", "bookings", { status: "completed" }));
+      }
 
-    Promise.all(promises).then(() => {
+      if (role === "admin") {
+        promises.push(qCount("Users", "user_requests", { status: "pending" }));
+      }
+
+      await Promise.all(promises);
       if (!cancelled) setNavBadges({ ...badges });
-    });
+    };
+
+    void run();
 
     return () => {
       cancelled = true;
@@ -565,32 +579,11 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
 
   const navigateByEntity = (entityType: string, entityId?: string | null) => {
     const candidateMap: Record<string, string[]> = {
-      booking: [
-        "Dispatch",
-        "All Bookings",
-        "My Bookings",
-        "Booking Approvals",
-        "Reports",
-      ],
-      fuel_request: [
-        "Fuel Request",
-        "Fuel Approvals",
-        "Record Fuel",
-        "Fuel History",
-        "Reports",
-      ],
+      booking: ["Dispatch", "All Bookings", "My Bookings", "Booking Approvals", "Reports"],
       fuel: ["Fuel Request", "Fuel Approvals", "Record Fuel", "Fuel History", "Reports"],
-      maintenance: [
-        "Maintenance",
-        "Maint. History",
-        "Maintenance History",
-        "Maintenance Approvals",
-        "Report Maintenance",
-        "Reports",
-      ],
+      maintenance: ["Maintenance", "Maint. History", "Maintenance History", "Maintenance Approvals", "Reports"],
       incident: ["Incidents", "Reports"],
       trip: ["Close Trips", "Dispatch", "Reports"],
-      user: ["Users"],
       approval: ["Reports"],
     };
 
@@ -603,10 +596,7 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
       window.setTimeout(() => {
         window.dispatchEvent(
           new CustomEvent("tms:entity-focus", {
-            detail: {
-              entityType,
-              entityId: entityId ?? null,
-            },
+            detail: { entityType, entityId: entityId ?? null },
           })
         );
       }, 120);
@@ -614,8 +604,7 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
   };
 
   const roleLabel = ROLE_LABELS[profile?.system_role ?? ""] ?? profile?.system_role ?? "";
-  const roleColor =
-    ROLE_COLORS[profile?.system_role ?? ""] ?? "bg-[color:var(--text-muted)]";
+  const roleColor = ROLE_COLORS[profile?.system_role ?? ""] ?? "bg-[color:var(--text-muted)]";
   const initials = profile?.full_name
     ? profile.full_name
         .split(" ")
@@ -789,16 +778,7 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
             {baseItems.map((item, i) => {
               const isActive = i === activeIndex && !isProfileActive;
               const badge = navBadges[item.label] ?? 0;
-
-              const dividerLabels = new Set([
-                "users",
-                "vehicles",
-                "record fuel",
-                "fuel history",
-                "reports",
-                "profile",
-              ]);
-
+              const dividerLabels = new Set(["users", "vehicles", "record fuel", "fuel history", "reports", "profile"]);
               const showDivider = i > 0 && dividerLabels.has(item.label.toLowerCase());
 
               return (
@@ -849,7 +829,7 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
                         style={{
                           background: "var(--text)",
                           color: "var(--bg)",
-                          left: desktopCollapsed ? "76px" : undefined,
+                          left: "76px",
                         }}
                       >
                         {item.label}

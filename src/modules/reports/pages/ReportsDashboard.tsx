@@ -1,13 +1,14 @@
 // src/modules/reports/pages/ReportsDashboard.tsx
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase, cachedFetch } from "@/lib/supabase";
-import { Card, CardHeader, CardBody, StatCard, Badge, Btn } from "@/components/TmsUI";
+import { Card, CardHeader, CardBody, StatCard, Badge } from "@/components/TmsUI";
 import { usePagination, PaginationBar } from "@/hooks/usePagination";
 import { fmtMoney } from "@/lib/utils";
 import AlertsPanel from "@/components/dashboard/AlertsPanel";
 import InsightCard from "@/components/dashboard/InsightCard";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { useNavigate } from "react-router-dom";
+import { debounce } from "@/lib/debounce";
 
 type Period = "week" | "month" | "quarter" | "year";
 
@@ -242,7 +243,14 @@ function DonutChart({ data }: { data: { label: string; value: number; color: str
             offset += dash;
             return seg;
           })}
-        <text x="50" y="54" textAnchor="middle" fontSize="14" fontWeight="bold" fill="var(--text)">
+        <text
+          x="50"
+          y="54"
+          textAnchor="middle"
+          fontSize="14"
+          fontWeight="bold"
+          fill="var(--text)"
+        >
           {total}
         </text>
       </svg>
@@ -254,7 +262,10 @@ function DonutChart({ data }: { data: { label: string; value: number; color: str
             <span className="text-xs" style={{ color: "var(--text-muted)" }}>
               {d.label}
             </span>
-            <span className="text-xs font-semibold ml-auto pl-4" style={{ color: "var(--text)" }}>
+            <span
+              className="text-xs font-semibold ml-auto pl-4"
+              style={{ color: "var(--text)" }}
+            >
               {d.value}
             </span>
           </div>
@@ -326,9 +337,7 @@ function useCountUp(value: number, duration = 600) {
       const next = Math.round(startValue + delta * progress);
       setDisplay(next);
 
-      if (progress < 1) {
-        frame = requestAnimationFrame(tick);
-      }
+      if (progress < 1) frame = requestAnimationFrame(tick);
     };
 
     frame = requestAnimationFrame(tick);
@@ -393,165 +402,132 @@ export default function ReportsDashboard() {
     const { from, to } = getPeriodRange(period);
     const cacheKey = `reports_dashboard:${period}:${from}:${to}`;
 
-    try {
-      const result = await cachedFetch(
-        cacheKey,
-        async () => {
-          const [{ data: b }, { data: f }, { data: m }, { data: v }] = await Promise.all([
-            supabase
-              .from("bookings")
-              .select("status,booking_type,trip_date,purpose,created_at")
-              .gte("created_at", from)
-              .lte("created_at", to + "T23:59:59")
-              .limit(1000),
+    const result = await cachedFetch(
+      cacheKey,
+      async () => {
+        const [{ data: b }, { data: f }, { data: m }, { data: v }] = await Promise.all([
+          supabase
+            .from("bookings")
+            .select("status,booking_type,trip_date,purpose,created_at")
+            .gte("created_at", from)
+            .lte("created_at", to + "T23:59:59")
+            .limit(1000),
 
-            supabase
-              .from("fuel_requests")
-              .select("status,amount,liters,vendor,request_date,vehicles(plate_number,fuel_type)")
-              .gte("created_at", from)
-              .lte("created_at", to + "T23:59:59")
-              .limit(1000),
+          supabase
+            .from("fuel_requests")
+            .select("status,amount,liters,vendor,request_date,vehicles(plate_number,fuel_type)")
+            .gte("created_at", from)
+            .lte("created_at", to + "T23:59:59")
+            .limit(1000),
 
-            supabase
-              .from("maintenance_requests")
-              .select("status,issue_type,created_at,vehicles(plate_number)")
-              .gte("created_at", from)
-              .lte("created_at", to + "T23:59:59")
-              .limit(1000),
+          supabase
+            .from("maintenance_requests")
+            .select("status,issue_type,created_at,vehicles(plate_number)")
+            .gte("created_at", from)
+            .lte("created_at", to + "T23:59:59")
+            .limit(1000),
 
-            supabase.from("v_vehicle_utilization_30d").select("*").limit(50),
-          ]);
+          supabase.from("v_vehicle_utilization_30d").select("*").limit(50),
+        ]);
 
-          const bRows = (b as BookingRow[]) || [];
-          const fRows = (f as unknown as FuelRow[]) || [];
-          const mRows = (m as unknown as MaintRow[]) || [];
-          const vRows = (v as unknown as VehicleUtil[]) || [];
+        const bRows = (b as BookingRow[]) || [];
+        const fRows = (f as unknown as FuelRow[]) || [];
+        const mRows = (m as unknown as MaintRow[]) || [];
+        const vRows = (v as unknown as VehicleUtil[]) || [];
 
-          const nextKpi: KPI = {
-            total_bookings: bRows.length,
-            approved_bookings: bRows.filter((r) =>
-              ["approved", "dispatched", "in_progress", "completed", "closed"].includes(r.status)
-            ).length,
-            rejected_bookings: bRows.filter((r) => r.status === "rejected").length,
-            completed_bookings: bRows.filter((r) => ["completed", "closed"].includes(r.status)).length,
-            total_fuel_requests: fRows.length,
-            total_fuel_amount: fRows.reduce((s, r) => s + (r.amount ?? 0), 0),
-            total_fuel_liters: fRows.reduce((s, r) => s + (r.liters ?? 0), 0),
-            total_maintenance: mRows.length,
-            active_vehicles: vRows.length,
-            active_drivers: 0,
-          };
+        const kpiData: KPI = {
+          total_bookings: bRows.length,
+          approved_bookings: bRows.filter((r) =>
+            ["approved", "dispatched", "in_progress", "completed", "closed"].includes(r.status)
+          ).length,
+          rejected_bookings: bRows.filter((r) => r.status === "rejected").length,
+          completed_bookings: bRows.filter((r) => ["completed", "closed"].includes(r.status)).length,
+          total_fuel_requests: fRows.length,
+          total_fuel_amount: fRows.reduce((s, r) => s + (r.amount ?? 0), 0),
+          total_fuel_liters: fRows.reduce((s, r) => s + (r.liters ?? 0), 0),
+          total_maintenance: mRows.length,
+          active_vehicles: vRows.length,
+          active_drivers: 0,
+        };
 
-          return {
-            bookings: bRows,
-            fuel: fRows,
-            maint: mRows,
-            utilization: vRows,
-            kpi: nextKpi,
-          };
-        },
-        force
-      );
+        return { bRows, fRows, mRows, vRows, kpiData };
+      },
+      force
+    );
 
-      setBookings(result.bookings);
-      setFuel(result.fuel);
-      setMaint(result.maint);
-      setUtilization(result.utilization);
-      setKpi(result.kpi);
-    } catch (e) {
-      console.error("ReportsDashboard load error:", e);
-    } finally {
-      setLoading(false);
-    }
+    setBookings(result.bRows);
+    setFuel(result.fRows);
+    setMaint(result.mRows);
+    setUtilization(result.vRows);
+    setKpi(result.kpiData);
+    setLoading(false);
   }, [period]);
-
-  const { label } = getPeriodRange(period);
-
-  const topInsight = useMemo(() => {
-    if (!kpi) return "";
-
-    if (kpi.rejected_bookings > 0) {
-      return `${kpi.rejected_bookings} bookings were rejected`;
-    }
-
-    if (kpi.total_fuel_amount > 0) {
-      return `Fuel spend is ${fmtMoney(kpi.total_fuel_amount)}`;
-    }
-
-    if (kpi.completed_bookings > 0) {
-      return `${kpi.completed_bookings} trips completed`;
-    }
-
-    return "System running normally";
-  }, [kpi]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  const debouncedRefresh = useMemo(
+    () => debounce(() => void load(true), 500),
+    [load]
+  );
+
   useRealtimeRefresh({
     channel: "reports_dashboard_realtime",
     tables: ["bookings", "fuel_requests", "maintenance_requests"],
-    onRefresh: () => void load(true),
+    onRefresh: debouncedRefresh,
   });
 
-  const bookingStatusData = useMemo(
-    () => [
-      {
-        label: "Completed",
-        value: kpi?.completed_bookings ?? 0,
-        color: "var(--green)",
-      },
-      {
-        label: "Approved",
-        value: bookings.filter((b) => b.status === "approved").length,
-        color: "var(--accent)",
-      },
-      {
-        label: "Rejected",
-        value: kpi?.rejected_bookings ?? 0,
-        color: "var(--red)",
-      },
-      {
-        label: "Pending",
-        value: bookings.filter((b) => ["draft", "submitted"].includes(b.status)).length,
-        color: "var(--amber)",
-      },
-    ],
-    [bookings, kpi]
-  );
+  const { label } = getPeriodRange(period);
 
-  const typeCount = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const b of bookings) {
-      const key = b.booking_type || "unknown";
-      map[key] = (map[key] ?? 0) + 1;
-    }
-    return map;
-  }, [bookings]);
+  const topInsight = (() => {
+    if (!kpi) return "";
 
-  const maxType = useMemo(() => Math.max(...Object.values(typeCount), 1), [typeCount]);
+    if (kpi.rejected_bookings > 0) return `${kpi.rejected_bookings} bookings were rejected`;
+    if (kpi.total_fuel_amount > 0) return `Fuel spend is ${fmtMoney(kpi.total_fuel_amount)}`;
+    if (kpi.completed_bookings > 0) return `${kpi.completed_bookings} trips completed`;
+    return "System running normally";
+  })();
 
-  const maintStatusData = useMemo(
-    () => [
-      {
-        label: "Reported",
-        value: maint.filter((m) => m.status === "reported").length,
-        color: "var(--amber)",
-      },
-      {
-        label: "In Progress",
-        value: maint.filter((m) => m.status === "in_progress").length,
-        color: "var(--accent)",
-      },
-      {
-        label: "Completed",
-        value: maint.filter((m) => ["completed", "closed"].includes(m.status)).length,
-        color: "var(--green)",
-      },
-    ],
-    [maint]
-  );
+  const bookingStatusData = [
+    { label: "Completed", value: kpi?.completed_bookings ?? 0, color: "var(--green)" },
+    {
+      label: "Approved",
+      value: bookings.filter((b) => b.status === "approved").length,
+      color: "var(--accent)",
+    },
+    { label: "Rejected", value: kpi?.rejected_bookings ?? 0, color: "var(--red)" },
+    {
+      label: "Pending",
+      value: bookings.filter((b) => ["draft", "submitted"].includes(b.status)).length,
+      color: "var(--amber)",
+    },
+  ];
+
+  const typeCount: Record<string, number> = {};
+  for (const b of bookings) {
+    typeCount[b.booking_type] = (typeCount[b.booking_type] ?? 0) + 1;
+  }
+
+  const maxType = Math.max(...Object.values(typeCount), 1);
+
+  const maintStatusData = [
+    {
+      label: "Reported",
+      value: maint.filter((m) => m.status === "reported").length,
+      color: "var(--amber)",
+    },
+    {
+      label: "In Progress",
+      value: maint.filter((m) => m.status === "in_progress").length,
+      color: "var(--accent)",
+    },
+    {
+      label: "Completed",
+      value: maint.filter((m) => ["completed", "closed"].includes(m.status)).length,
+      color: "var(--green)",
+    },
+  ];
 
   const periods: { value: Period; label: string }[] = [
     { value: "week", label: "This Week" },
@@ -686,12 +662,7 @@ export default function ReportsDashboard() {
           { label: "Fuel Requests", value: kpi?.total_fuel_requests ?? 0, accent: "amber" as const },
           { label: "Maintenance", value: kpi?.total_maintenance ?? 0, accent: "red" as const },
         ].map((s) => (
-          <AnimatedStat
-            key={s.label}
-            label={s.label}
-            value={s.value}
-            accent={s.accent}
-          />
+          <AnimatedStat key={s.label} label={s.label} value={s.value} accent={s.accent} />
         ))}
       </div>
 
@@ -864,7 +835,10 @@ export default function ReportsDashboard() {
                       <td>
                         <Badge status={m.status} />
                       </td>
-                      <td className="text-xs whitespace-nowrap" style={{ color: "var(--text-muted)" }}>
+                      <td
+                        className="text-xs whitespace-nowrap"
+                        style={{ color: "var(--text-muted)" }}
+                      >
                         {m.created_at.slice(0, 10)}
                       </td>
                     </tr>
