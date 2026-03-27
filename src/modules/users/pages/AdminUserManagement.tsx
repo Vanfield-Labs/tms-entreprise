@@ -22,24 +22,24 @@ type Profile = {
 };
 
 type Division = { id: string; name: string };
-type Unit     = { id: string; name: string; division_id: string };
+type Unit = { id: string; name: string; division_id: string };
 
 const ROLES = [
-  { value: "staff",                label: "Staff" },
-  { value: "unit_head",            label: "Unit Head" },
-  { value: "driver",               label: "Driver" },
+  { value: "staff", label: "Staff" },
+  { value: "unit_head", label: "Unit Head" },
+  { value: "driver", label: "Driver" },
   { value: "transport_supervisor", label: "Transport Supervisor" },
-  { value: "corporate_approver",   label: "Corporate Approver" },
-  { value: "admin",                label: "Admin" },
+  { value: "corporate_approver", label: "Corporate Approver" },
+  { value: "admin", label: "Admin" },
 ];
 
 const ROLE_COLORS: Record<string, string> = {
-  admin:                "badge badge-role-admin",
-  corporate_approver:   "badge badge-role-corporate",
+  admin: "badge badge-role-admin",
+  corporate_approver: "badge badge-role-corporate",
   transport_supervisor: "badge badge-role-transport",
-  driver:               "badge badge-role-driver",
-  unit_head:            "badge badge-role-unit",
-  staff:                "badge badge-role-staff",
+  driver: "badge badge-role-driver",
+  unit_head: "badge badge-role-unit",
+  staff: "badge badge-role-staff",
 };
 
 function generatePassword(length = 12): string {
@@ -51,15 +51,15 @@ function generatePassword(length = 12): string {
 // ─── Context Menu ─────────────────────────────────────────────────────────────
 function ContextMenu({ profile, onEdit, onToggle, onResetPwd, toggling }: {
   profile: Profile;
-  onEdit:     (p: Profile) => void;
-  onToggle:   (p: Profile) => void;
+  onEdit: (p: Profile) => void;
+  onToggle: (p: Profile) => void;
   onResetPwd: (p: Profile) => void;
-  toggling:   boolean;
+  toggling: boolean;
 }) {
- const [open, setOpen] = useState(false);
-const [isMobileMenu, setIsMobileMenu] = useState(false);
-const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
-const ref = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [isMobileMenu, setIsMobileMenu] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
@@ -70,73 +70,73 @@ const ref = useRef<HTMLDivElement>(null);
   return (
     <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
       <button
-onClick={(e) => {
-  const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-  const mobile = window.innerWidth < 640;
+        onClick={(e) => {
+          const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+          const mobile = window.innerWidth < 640;
 
-  setIsMobileMenu(mobile);
+          setIsMobileMenu(mobile);
 
-  if (!mobile) {
-    const menuWidth = 170;
-    let left = rect.left;
+          if (!mobile) {
+            const menuWidth = 170;
+            let left = rect.left;
 
-    if (left + menuWidth > window.innerWidth) {
-      left = window.innerWidth - menuWidth - 8;
-    }
+            if (left + menuWidth > window.innerWidth) {
+              left = window.innerWidth - menuWidth - 8;
+            }
 
-    if (left < 8) {
-      left = 8;
-    }
+            if (left < 8) {
+              left = 8;
+            }
 
-    setMenuPos({
-      top: rect.bottom + 6,
-      left,
-    });
-  }
+            setMenuPos({
+              top: rect.bottom + 6,
+              left,
+            });
+          }
 
-  setOpen(v => !v);
-}}
-  style={{
-    background: "none",
-    border: "none",
-    cursor: "pointer",
-    padding: "4px 8px",
-    borderRadius: 6,
-    color: "var(--text-muted)",
-    fontSize: 20,
-    lineHeight: 1,
-  }}
-  title="Options"
->
-  ⋮
-</button>
+          setOpen(v => !v);
+        }}
+        style={{
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: "4px 8px",
+          borderRadius: 6,
+          color: "var(--text-muted)",
+          fontSize: 20,
+          lineHeight: 1,
+        }}
+        title="Options"
+      >
+        ⋮
+      </button>
 
-       {open && (
-  <div
-    style={{
-      position: isMobileMenu ? "absolute" : "fixed",
-      top: isMobileMenu ? "calc(100% + 6px)" : menuPos.top,
-      right: isMobileMenu ? 0 : "auto",
-      left: isMobileMenu ? "auto" : menuPos.left,
-      zIndex: 9999,
-      background: "var(--surface)",
-      border: "1px solid var(--border)",
-      borderRadius: 10,
-      boxShadow: "0 10px 30px rgba(0,0,0,.18)",
-      minWidth: 170,
-      overflow: "hidden",
-    }}
-  
-          >
+      {open && (
+        <div
+          style={{
+            position: isMobileMenu ? "absolute" : "fixed",
+            top: isMobileMenu ? "calc(100% + 6px)" : menuPos.top,
+            right: isMobileMenu ? 0 : "auto",
+            left: isMobileMenu ? "auto" : menuPos.left,
+            zIndex: 9999,
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            boxShadow: "0 10px 30px rgba(0,0,0,.18)",
+            minWidth: 170,
+            overflow: "hidden",
+          }}
+
+        >
           {[
-            { label: "✏️  Edit",                onClick: () => { setOpen(false); onEdit(profile); },     color: "var(--text)" },
+            { label: "✏️  Edit", onClick: () => { setOpen(false); onEdit(profile); }, color: "var(--text)" },
             {
-              label:   profile.status === "active" ? "🔴  Deactivate" : "🟢  Activate",
+              label: profile.status === "active" ? "🔴  Deactivate" : "🟢  Activate",
               onClick: () => { setOpen(false); onToggle(profile); },
-              color:   profile.status === "active" ? "var(--red)"   : "var(--green)",
+              color: profile.status === "active" ? "var(--red)" : "var(--green)",
               disabled: toggling,
             },
-            { label: "🔑  Reset Password",       onClick: () => { setOpen(false); onResetPwd(profile); }, color: "var(--text)" },
+            { label: "🔑  Reset Password", onClick: () => { setOpen(false); onResetPwd(profile); }, color: "var(--text)" },
           ].map((item, i) => (
             <button
               key={i}
@@ -163,22 +163,22 @@ function EditModal({ profile, divisions, units, onClose, onSaved }: {
   profile: Profile; divisions: Division[]; units: Unit[];
   onClose: () => void; onSaved: () => void;
 }) {
-  const [fullName,      setFullName]      = useState(profile.full_name);
+  const [fullName, setFullName] = useState(profile.full_name);
   const [positionTitle, setPositionTitle] = useState(profile.position_title ?? "");
-  const [systemRole,    setSystemRole]    = useState(profile.system_role);
-  const [divisionId,    setDivisionId]    = useState(profile.division_id ?? "");
-  const [unitId,        setUnitId]        = useState(profile.unit_id     ?? "");
-  const [saving,        setSaving]        = useState(false);
-  const [error,         setError]         = useState("");
+  const [systemRole, setSystemRole] = useState(profile.system_role);
+  const [divisionId, setDivisionId] = useState(profile.division_id ?? "");
+  const [unitId, setUnitId] = useState(profile.unit_id ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   const save = async () => {
     setSaving(true); setError("");
     const { error: e } = await supabase.from("profiles").update({
-      full_name:      fullName.trim(),
+      full_name: fullName.trim(),
       position_title: positionTitle.trim() || null,
-      system_role:    systemRole,
-      division_id:    divisionId || null,
-      unit_id:        unitId     || null,
+      system_role: systemRole,
+      division_id: divisionId || null,
+      unit_id: unitId || null,
     }).eq("user_id", profile.user_id);
     if (e) { setError(e.message); setSaving(false); return; }
     onSaved();
@@ -247,16 +247,19 @@ function EditModal({ profile, divisions, units, onClose, onSaved }: {
 
 // ─── Reset Password Modal ─────────────────────────────────────────────────────
 function ResetPasswordModal({ profile, onClose }: { profile: Profile; onClose: () => void }) {
-  const [pwd,    setPwd]    = useState(generatePassword());
+  const [pwd, setPwd] = useState(generatePassword());
   const [saving, setSaving] = useState(false);
-  const [done,   setDone]   = useState(false);
-  const [error,  setError]  = useState("");
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState("");
 
   const reset = async () => {
     setSaving(true); setError("");
     try {
-      const res = await supabase.functions.invoke("reset-user-password", {
-        body: { user_id: profile.user_id, new_password: pwd },
+      const res = await supabase.functions.invoke("reset-password", {
+        body: {
+          target_user_id: profile.user_id,
+          new_password: pwd,
+        },
       });
       if (res.error || res.data?.error) throw new Error(res.error?.message ?? res.data?.error);
       setDone(true);
@@ -317,27 +320,27 @@ function ResetPasswordModal({ profile, onClose }: { profile: Profile; onClose: (
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function AdminUserManagement() {
-  const [tab,       setTab]       = useState<Tab>("requests");
+  const [tab, setTab] = useState<Tab>("requests");
   const [divisions, setDivisions] = useState<Division[]>([]);
-  const [units,     setUnits]     = useState<Unit[]>([]);
-  const [requests,  setRequests]  = useState<PendingRequest[]>([]);
-  const [profiles,  setProfiles]  = useState<Profile[]>([]);
-  const [loading,   setLoading]   = useState(true);
-  const [search,    setSearch]    = useState("");
+  const [units, setUnits] = useState<Unit[]>([]);
+  const [requests, setRequests] = useState<PendingRequest[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
 
   const [form, setForm] = useState({
     full_name: "", email: "", password: "", system_role: "staff",
     division_id: "", unit_id: "", position_title: "",
   });
-  const [showPwd,       setShowPwd]       = useState(false);
-  const [createSaving,  setCreateSaving]  = useState(false);
-  const [createError,   setCreateError]   = useState("");
+  const [showPwd, setShowPwd] = useState(false);
+  const [createSaving, setCreateSaving] = useState(false);
+  const [createError, setCreateError] = useState("");
   const [createSuccess, setCreateSuccess] = useState<{ name: string; email: string; password: string } | null>(null);
 
-  const [reqForm,     setReqForm]     = useState<Record<string, { password: string; position_title: string; acting: boolean }>>({});
+  const [reqForm, setReqForm] = useState<Record<string, { password: string; position_title: string; acting: boolean }>>({});
   const [rejectingId, setRejectingId] = useState<string | null>(null);
-  const [togglingId,  setTogglingId]  = useState<string | null>(null);
-  const [editTarget,  setEditTarget]  = useState<Profile | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [editTarget, setEditTarget] = useState<Profile | null>(null);
   const [resetTarget, setResetTarget] = useState<Profile | null>(null);
 
   const load = async () => {
@@ -446,50 +449,50 @@ export default function AdminUserManagement() {
       {loading ? (
         <div className="space-y-4">
 
-  {/* Header skeleton */}
-  <div className="flex items-center justify-between gap-3 flex-wrap">
-    <div className="space-y-2">
-      <div className="skeleton h-5 w-32" />
-      <div className="skeleton h-3 w-40" />
-    </div>
-    <div className="skeleton h-9 w-28 rounded-xl" />
-  </div>
-
-  {/* Search / filters */}
-  <div className="flex flex-wrap gap-2">
-    <div className="skeleton h-10 w-56 rounded-xl" />
-    <div className="skeleton h-10 w-32 rounded-xl" />
-  </div>
-
-  {/* User cards */}
-  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-    {[...Array(6)].map((_, i) => (
-      <div key={i} className="card p-4 space-y-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="skeleton w-10 h-10 rounded-full" />
+          {/* Header skeleton */}
+          <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="space-y-2">
-              <div className="skeleton h-4 w-28" />
-              <div className="skeleton h-3 w-20" />
+              <div className="skeleton h-5 w-32" />
+              <div className="skeleton h-3 w-40" />
             </div>
+            <div className="skeleton h-9 w-28 rounded-xl" />
           </div>
-          <div className="skeleton h-8 w-8 rounded-lg" />
-        </div>
 
-        <div className="space-y-2">
-          <div className="skeleton h-3 w-full" />
-          <div className="skeleton h-3 w-4/5" />
-        </div>
+          {/* Search / filters */}
+          <div className="flex flex-wrap gap-2">
+            <div className="skeleton h-10 w-56 rounded-xl" />
+            <div className="skeleton h-10 w-32 rounded-xl" />
+          </div>
 
-        <div className="flex gap-2">
-          <div className="skeleton h-8 w-20 rounded-lg" />
-          <div className="skeleton h-8 w-24 rounded-lg" />
-        </div>
-      </div>
-    ))}
-  </div>
+          {/* User cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="card p-4 space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="skeleton w-10 h-10 rounded-full" />
+                    <div className="space-y-2">
+                      <div className="skeleton h-4 w-28" />
+                      <div className="skeleton h-3 w-20" />
+                    </div>
+                  </div>
+                  <div className="skeleton h-8 w-8 rounded-lg" />
+                </div>
 
-</div>
+                <div className="space-y-2">
+                  <div className="skeleton h-3 w-full" />
+                  <div className="skeleton h-3 w-4/5" />
+                </div>
+
+                <div className="flex gap-2">
+                  <div className="skeleton h-8 w-20 rounded-lg" />
+                  <div className="skeleton h-8 w-24 rounded-lg" />
+                </div>
+              </div>
+            ))}
+          </div>
+
+        </div>
       ) : (
         <>
           {/* ── Pending Requests ── */}
@@ -700,6 +703,7 @@ export default function AdminUserManagement() {
                         onToggle={toggleStatus} onResetPwd={setResetTarget}
                         toggling={togglingId === p.user_id} />
                     </div>
+                    
                   </div>
                 ))}
               </div>
