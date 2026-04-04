@@ -1,7 +1,7 @@
 // src/modules/fuel/pages/FuelRequests.tsx
 // Shows the current user's own fuel requests. Uses RLS (created_by = auth.uid()).
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { fmtDate, fmtMoney } from "@/lib/utils";
 import { useFlashHighlight } from "@/hooks/useFlashHighlight";
@@ -9,7 +9,14 @@ import { usePageToast } from "@/hooks/usePageToast";
 import PageToast from "@/components/feedback/PageToast";
 import CardListSkeleton from "@/components/skeletons/CardListSkeleton";
 
-type FuelStatus = "draft" | "submitted" | "approved" | "rejected" | "recorded";
+type FuelStatus =
+  | "draft"
+  | "submitted"
+  | "approved"
+  | "rejected"
+  | "recorded"
+  | "not_executed"
+  | "expired";
 
 type FuelRequest = {
   id: string;
@@ -36,6 +43,8 @@ const STATUS_BADGE: Record<FuelStatus, string> = {
   approved: "badge badge-approved",
   rejected: "badge badge-rejected",
   recorded: "badge badge-recorded",
+  not_executed: "badge badge-warning",
+  expired: "badge badge-muted",
 };
 
 const STATUS_LABEL: Record<FuelStatus, string> = {
@@ -44,6 +53,8 @@ const STATUS_LABEL: Record<FuelStatus, string> = {
   approved: "Approved",
   rejected: "Rejected",
   recorded: "Recorded / Dispensed",
+  not_executed: "Approved but not dispensed",
+  expired: "Expired",
 };
 
 export default function FuelRequests() {
@@ -65,6 +76,7 @@ export default function FuelRequests() {
       .limit(200);
 
     if (error) {
+      console.error("FuelRequests load error:", error.message);
       setLoading(false);
       return;
     }
@@ -100,7 +112,7 @@ export default function FuelRequests() {
   };
 
   useEffect(() => {
-    load();
+    void load();
 
     const ch = supabase
       .channel("my_fuel_realtime_ui")
@@ -149,11 +161,45 @@ export default function FuelRequests() {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(ch);
+      void supabase.removeChannel(ch);
     };
+  }, [flash, showToast]);
+
+  // STEP 9:
+  // When notification bell dispatches tms:focus-fuel-request,
+  // this page expands and scrolls to the exact request card.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ entityId?: string }>).detail;
+      const id = detail?.entityId;
+      if (!id) return;
+
+      setExpanded(id);
+
+      window.setTimeout(() => {
+        const el = document.getElementById(`row-${id}`);
+        el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 120);
+    };
+
+    window.addEventListener("tms:focus-fuel-request", handler);
+    return () => window.removeEventListener("tms:focus-fuel-request", handler);
   }, []);
 
-  const filtered = filter === "all" ? rows : rows.filter((r) => r.status === filter);
+  const filtered = useMemo(() => {
+    return filter === "all" ? rows : rows.filter((r) => r.status === filter);
+  }, [rows, filter]);
+
+  const filterOptions = [
+    "all",
+    "draft",
+    "submitted",
+    "approved",
+    "rejected",
+    "recorded",
+    "not_executed",
+    "expired",
+  ] as const;
 
   return (
     <div className="space-y-4">
@@ -167,7 +213,7 @@ export default function FuelRequests() {
       </div>
 
       <div className="flex gap-2 flex-wrap">
-        {(["all", "draft", "submitted", "approved", "rejected", "recorded"] as const).map((s) => (
+        {filterOptions.map((s) => (
           <button
             key={s}
             onClick={() => setFilter(s)}
@@ -204,6 +250,7 @@ export default function FuelRequests() {
           {filtered.map((r) => (
             <div
               key={r.id}
+              id={`row-${r.id}`}
               className="card"
               style={{
                 overflow: "hidden",

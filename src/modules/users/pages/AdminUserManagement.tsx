@@ -22,24 +22,24 @@ type Profile = {
 };
 
 type Division = { id: string; name: string };
-type Unit = { id: string; name: string; division_id: string };
+type Unit     = { id: string; name: string; division_id: string };
 
 const ROLES = [
-  { value: "staff", label: "Staff" },
-  { value: "unit_head", label: "Unit Head" },
-  { value: "driver", label: "Driver" },
+  { value: "staff",                label: "Staff" },
+  { value: "unit_head",            label: "Unit Head" },
+  { value: "driver",               label: "Driver" },
   { value: "transport_supervisor", label: "Transport Supervisor" },
-  { value: "corporate_approver", label: "Corporate Approver" },
-  { value: "admin", label: "Admin" },
+  { value: "corporate_approver",   label: "Corporate Approver" },
+  { value: "admin",                label: "Admin" },
 ];
 
 const ROLE_COLORS: Record<string, string> = {
-  admin: "badge badge-role-admin",
-  corporate_approver: "badge badge-role-corporate",
+  admin:                "badge badge-role-admin",
+  corporate_approver:   "badge badge-role-corporate",
   transport_supervisor: "badge badge-role-transport",
-  driver: "badge badge-role-driver",
-  unit_head: "badge badge-role-unit",
-  staff: "badge badge-role-staff",
+  driver:               "badge badge-role-driver",
+  unit_head:            "badge badge-role-unit",
+  staff:                "badge badge-role-staff",
 };
 
 function generatePassword(length = 12): string {
@@ -51,15 +51,15 @@ function generatePassword(length = 12): string {
 // ─── Context Menu ─────────────────────────────────────────────────────────────
 function ContextMenu({ profile, onEdit, onToggle, onResetPwd, toggling }: {
   profile: Profile;
-  onEdit: (p: Profile) => void;
-  onToggle: (p: Profile) => void;
+  onEdit:     (p: Profile) => void;
+  onToggle:   (p: Profile) => void;
   onResetPwd: (p: Profile) => void;
-  toggling: boolean;
+  toggling:   boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const [isMobileMenu, setIsMobileMenu] = useState(false);
-  const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
-  const ref = useRef<HTMLDivElement>(null);
+ const [open, setOpen] = useState(false);
+const [isMobileMenu, setIsMobileMenu] = useState(false);
+const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
@@ -70,73 +70,73 @@ function ContextMenu({ profile, onEdit, onToggle, onResetPwd, toggling }: {
   return (
     <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
       <button
-        onClick={(e) => {
-          const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-          const mobile = window.innerWidth < 640;
+onClick={(e) => {
+  const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+  const mobile = window.innerWidth < 640;
 
-          setIsMobileMenu(mobile);
+  setIsMobileMenu(mobile);
 
-          if (!mobile) {
-            const menuWidth = 170;
-            let left = rect.left;
+  if (!mobile) {
+    const menuWidth = 170;
+    let left = rect.left;
 
-            if (left + menuWidth > window.innerWidth) {
-              left = window.innerWidth - menuWidth - 8;
-            }
+    if (left + menuWidth > window.innerWidth) {
+      left = window.innerWidth - menuWidth - 8;
+    }
 
-            if (left < 8) {
-              left = 8;
-            }
+    if (left < 8) {
+      left = 8;
+    }
 
-            setMenuPos({
-              top: rect.bottom + 6,
-              left,
-            });
-          }
+    setMenuPos({
+      top: rect.bottom + 6,
+      left,
+    });
+  }
 
-          setOpen(v => !v);
-        }}
-        style={{
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          padding: "4px 8px",
-          borderRadius: 6,
-          color: "var(--text-muted)",
-          fontSize: 20,
-          lineHeight: 1,
-        }}
-        title="Options"
-      >
-        ⋮
-      </button>
+  setOpen(v => !v);
+}}
+  style={{
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    padding: "4px 8px",
+    borderRadius: 6,
+    color: "var(--text-muted)",
+    fontSize: 20,
+    lineHeight: 1,
+  }}
+  title="Options"
+>
+  ⋮
+</button>
 
-      {open && (
-        <div
-          style={{
-            position: isMobileMenu ? "absolute" : "fixed",
-            top: isMobileMenu ? "calc(100% + 6px)" : menuPos.top,
-            right: isMobileMenu ? 0 : "auto",
-            left: isMobileMenu ? "auto" : menuPos.left,
-            zIndex: 9999,
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            borderRadius: 10,
-            boxShadow: "0 10px 30px rgba(0,0,0,.18)",
-            minWidth: 170,
-            overflow: "hidden",
-          }}
+       {open && (
+  <div
+    style={{
+      position: isMobileMenu ? "absolute" : "fixed",
+      top: isMobileMenu ? "calc(100% + 6px)" : menuPos.top,
+      right: isMobileMenu ? 0 : "auto",
+      left: isMobileMenu ? "auto" : menuPos.left,
+      zIndex: 9999,
+      background: "var(--surface)",
+      border: "1px solid var(--border)",
+      borderRadius: 10,
+      boxShadow: "0 10px 30px rgba(0,0,0,.18)",
+      minWidth: 170,
+      overflow: "hidden",
+    }}
 
-        >
+          >
           {[
-            { label: "✏️  Edit", onClick: () => { setOpen(false); onEdit(profile); }, color: "var(--text)" },
+            { label: "✏️  Edit",                onClick: () => { setOpen(false); onEdit(profile); },     color: "var(--text)" },
             {
-              label: profile.status === "active" ? "🔴  Deactivate" : "🟢  Activate",
+              label:   profile.status === "active" ? "🔴  Deactivate" : "🟢  Activate",
               onClick: () => { setOpen(false); onToggle(profile); },
-              color: profile.status === "active" ? "var(--red)" : "var(--green)",
+              color:   profile.status === "active" ? "var(--red)"   : "var(--green)",
               disabled: toggling,
             },
-            { label: "🔑  Reset Password", onClick: () => { setOpen(false); onResetPwd(profile); }, color: "var(--text)" },
+            { label: "🔑  Reset Password",       onClick: () => { setOpen(false); onResetPwd(profile); }, color: "var(--text)" },
           ].map((item, i) => (
             <button
               key={i}
@@ -163,22 +163,22 @@ function EditModal({ profile, divisions, units, onClose, onSaved }: {
   profile: Profile; divisions: Division[]; units: Unit[];
   onClose: () => void; onSaved: () => void;
 }) {
-  const [fullName, setFullName] = useState(profile.full_name);
+  const [fullName,      setFullName]      = useState(profile.full_name);
   const [positionTitle, setPositionTitle] = useState(profile.position_title ?? "");
-  const [systemRole, setSystemRole] = useState(profile.system_role);
-  const [divisionId, setDivisionId] = useState(profile.division_id ?? "");
-  const [unitId, setUnitId] = useState(profile.unit_id ?? "");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const [systemRole,    setSystemRole]    = useState(profile.system_role);
+  const [divisionId,    setDivisionId]    = useState(profile.division_id ?? "");
+  const [unitId,        setUnitId]        = useState(profile.unit_id     ?? "");
+  const [saving,        setSaving]        = useState(false);
+  const [error,         setError]         = useState("");
 
   const save = async () => {
     setSaving(true); setError("");
     const { error: e } = await supabase.from("profiles").update({
-      full_name: fullName.trim(),
+      full_name:      fullName.trim(),
       position_title: positionTitle.trim() || null,
-      system_role: systemRole,
-      division_id: divisionId || null,
-      unit_id: unitId || null,
+      system_role:    systemRole,
+      division_id:    divisionId || null,
+      unit_id:        unitId     || null,
     }).eq("user_id", profile.user_id);
     if (e) { setError(e.message); setSaving(false); return; }
     onSaved();
@@ -247,25 +247,40 @@ function EditModal({ profile, divisions, units, onClose, onSaved }: {
 
 // ─── Reset Password Modal ─────────────────────────────────────────────────────
 function ResetPasswordModal({ profile, onClose }: { profile: Profile; onClose: () => void }) {
-  const [pwd, setPwd] = useState(generatePassword());
+  const [pwd,    setPwd]    = useState(generatePassword());
   const [saving, setSaving] = useState(false);
-  const [done, setDone] = useState(false);
-  const [error, setError] = useState("");
+  const [done,   setDone]   = useState(false);
+  const [error,  setError]  = useState("");
 
   const reset = async () => {
     setSaving(true); setError("");
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Not authenticated.");
+
       const res = await supabase.functions.invoke("reset-password", {
         body: {
           target_user_id: profile.user_id,
-          new_password: pwd,
+          new_password:   pwd,
         },
       });
-      if (res.error || res.data?.error) throw new Error(res.error?.message ?? res.data?.error);
+
+      if (res.error) {
+        console.error("[reset-password] edge function error:", res.error);
+        throw new Error(res.error.message);
+      }
+      if (res.data?.error) {
+        console.error("[reset-password] response error:", res.data.error);
+        throw new Error(res.data.error);
+      }
+
       setDone(true);
     } catch (e: any) {
+      console.error("[reset-password] caught:", e);
       setError(e.message ?? "Reset failed");
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -703,7 +718,7 @@ export default function AdminUserManagement() {
                         onToggle={toggleStatus} onResetPwd={setResetTarget}
                         toggling={togglingId === p.user_id} />
                     </div>
-                    
+
                   </div>
                 ))}
               </div>

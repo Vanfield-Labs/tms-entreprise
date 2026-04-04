@@ -374,7 +374,7 @@ body {
 .badge-pending      { background: var(--amber-dim);   color: var(--amber); }
 .badge-maintenance  { background: var(--red-dim);     color: var(--red); }
 
-* ─── Alerts ─────────────────────────────────────────────────── */
+/* Alerts */
 
 /* Base — shared layout */
 .alert {

@@ -6,6 +6,11 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PushNotificationSetup } from "@/components/PushNotificationSetup";
 import { useAuth } from "@/hooks/useAuth";
 
+
+const NAV_STORAGE_KEY = "tms-active-nav-label";
+const LAST_ROUTE_STORAGE_KEY = "tms-last-path";
+const legacyNavStorageKey = NAV_STORAGE_KEY;
+
 const ENTITY_ICON: Record<string, string> = {
   booking: "📅",
   fuel: "⛽",
@@ -457,31 +462,79 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
     return [];
   }, [nav, navItems]);
 
+  const navStorageKey = useMemo(() => {
+    const path = window.location.pathname || "/";
+    return `${NAV_STORAGE_KEY}:${path}:${title.toLowerCase()}`;
+  }, [title]);
+
+  useEffect(() => {
+    if (!items.length) return;
+
+    // Clear the old global key so dashboards do not inherit each other's last tab.
+    sessionStorage.removeItem(legacyNavStorageKey);
+
+    const savedLabel = sessionStorage.getItem(navStorageKey);
+    if (!savedLabel) return;
+
+    const idx = items.findIndex((item) => item.label === savedLabel);
+    if (idx >= 0 && idx !== activeIndex) {
+      setActiveIndex(idx);
+    }
+  }, [items, activeIndex, navStorageKey]);
+
   const hasProfile = items.length > 0 && items[items.length - 1].label.toLowerCase().includes("profile");
   const baseItems = hasProfile ? items.slice(0, -1) : items;
   const isProfileActive = hasProfile && activeIndex === items.length - 1;
 
   const go = (i: number, pushHistory = true) => {
-    setActiveIndex(i);
-    setSidebarOpen(false);
-    const item = items[i];
-    if (item && !isElementItem(item)) item.onClick();
-    if (pushHistory) {
-      window.history.pushState({ navIndex: i }, "", window.location.pathname);
+  setActiveIndex(i);
+  setSidebarOpen(false);
+
+  const item = items[i];
+  const label = item?.label ?? "";
+
+  if (label) {
+    sessionStorage.setItem(navStorageKey, label);
+  }
+
+  if (item && !isElementItem(item)) item.onClick();
+
+  if (pushHistory) {
+    window.history.pushState(
+      { navIndex: i, navLabel: label },
+      "",
+      window.location.pathname
+    );
+  }
+};
+
+  useEffect(() => {
+  const onPop = (e: PopStateEvent) => {
+    const idx = e.state?.navIndex;
+    const label = e.state?.navLabel;
+
+    if (typeof idx === "number" && idx >= 0 && idx < items.length) {
+      go(idx, false);
+      return;
+    }
+
+    if (label) {
+      const found = items.findIndex((item) => item.label === label);
+      if (found >= 0) go(found, false);
     }
   };
 
-  useEffect(() => {
-    const onPop = (e: PopStateEvent) => {
-      const idx = e.state?.navIndex;
-      if (typeof idx === "number" && idx >= 0 && idx < items.length) {
-        go(idx, false);
-      }
-    };
-    window.addEventListener("popstate", onPop);
-    window.history.replaceState({ navIndex: activeIndex }, "", window.location.pathname);
-    return () => window.removeEventListener("popstate", onPop);
-  }, [items.length, activeIndex]);
+  window.addEventListener("popstate", onPop);
+
+  const currentLabel = items[activeIndex]?.label ?? "";
+  window.history.replaceState(
+    { navIndex: activeIndex, navLabel: currentLabel },
+    "",
+    window.location.pathname
+  );
+
+  return () => window.removeEventListener("popstate", onPop);
+}, [items, activeIndex]);
 
   useEffect(() => {
     const onNavigate = (e: Event) => {
@@ -497,11 +550,48 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
   const activeItem = items[activeIndex];
   const activeLabel = activeItem?.label ?? "";
 
-  const handleSignOut = async () => {
-    setShowSignOutConfirm(false);
-    await supabase.auth.signOut();
-    window.location.href = "/login";
-  };
+const handleSignOut = async () => {
+  setShowSignOutConfirm(false);
+
+  try {
+    sessionStorage.removeItem(legacyNavStorageKey);
+    sessionStorage.removeItem(navStorageKey);
+    sessionStorage.removeItem(LAST_ROUTE_STORAGE_KEY);
+
+    const keysToWipe = [
+      "tms-push-prompt-dismissed",
+      "tms-push-subscribed",
+      "supabase.auth.token",
+      "sb-access-token",
+      "sb-refresh-token",
+    ];
+
+    for (const key of keysToWipe) {
+      localStorage.removeItem(key);
+      sessionStorage.removeItem(key);
+    }
+
+    for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith("sb-") || key.startsWith("tms-"))) {
+        localStorage.removeItem(key);
+      }
+    }
+
+    for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
+      const key = sessionStorage.key(i);
+      if (key && (key.startsWith("sb-") || key.startsWith("tms-"))) {
+        sessionStorage.removeItem(key);
+      }
+    }
+
+    await supabase.auth.signOut({ scope: "global" });
+  } catch (error) {
+    console.error("Sign out cleanup failed:", error);
+  } finally {
+    window.location.replace("/login");
+  }
+};
 
   useEffect(() => {
     let cancelled = false;

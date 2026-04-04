@@ -1,14 +1,22 @@
 // src/modules/fuel/pages/FuelRecordQueue.tsx
-// Redesigned desktop view: cards instead of wide table — no horizontal scroll.
-// Mobile view unchanged. All existing logic preserved.
 
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { PageSpinner, EmptyState, Badge, Card, CountPill, Field, Input, Btn } from "@/components/TmsUI";
+import {
+  PageSpinner,
+  EmptyState,
+  Badge,
+  Card,
+  CountPill,
+  Field,
+  Input,
+  Btn,
+} from "@/components/TmsUI";
 import { fmtDate } from "@/lib/utils";
 import { usePagination, PaginationBar } from "@/hooks/usePagination";
 import { useRealtimeTable } from "@/hooks/useRealtimeTable";
 import { debounce } from "@/lib/debounce";
+import { markFuelNotExecuted } from "../services/fuel.service";
 
 type FuelRow = {
   id: string;
@@ -21,7 +29,11 @@ type FuelRow = {
   receipt_url: string | null;
   request_date: string;
   created_at: string;
-  vehicles: { plate_number: string; fuel_type: string | null; current_mileage: number | null } | null;
+  vehicles: {
+    plate_number: string;
+    fuel_type: string | null;
+    current_mileage: number | null;
+  } | null;
   profiles: { full_name: string } | null;
 };
 
@@ -32,8 +44,10 @@ type RecordState = {
   vendor: string;
   notes: string;
   receiptFile: File | null;
+  notExecutedReason: string;
   uploading: boolean;
   saving: boolean;
+  closing: boolean;
   error: string;
 };
 
@@ -44,8 +58,10 @@ const EMPTY_STATE: RecordState = {
   vendor: "",
   notes: "",
   receiptFile: null,
+  notExecutedReason: "",
   uploading: false,
   saving: false,
+  closing: false,
   error: "",
 };
 
@@ -90,6 +106,24 @@ export default function FuelRecordQueue() {
     onChange: debouncedReload,
   });
 
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ entityId?: string }>).detail;
+      const id = detail?.entityId;
+      if (!id) return;
+
+      window.setTimeout(() => {
+        document.getElementById(`row-${id}`)?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+      }, 120);
+    };
+
+    window.addEventListener("tms:focus-fuel-request", handler);
+    return () => window.removeEventListener("tms:focus-fuel-request", handler);
+  }, []);
+
   const uploadReceipt = async (id: string, file: File): Promise<string | null> => {
     const ext = file.name.split(".").pop() ?? "jpg";
     const path = `receipts/${id}_${Date.now()}.${ext}`;
@@ -111,6 +145,7 @@ export default function FuelRecordQueue() {
       u(id, { error: "Liters dispensed is required." });
       return;
     }
+
     if (!st.amount) {
       u(id, { error: "Actual cost is required." });
       return;
@@ -125,6 +160,7 @@ export default function FuelRecordQueue() {
         u(id, { uploading: true });
         receiptUrl = await uploadReceipt(id, st.receiptFile);
         u(id, { uploading: false });
+
         if (!receiptUrl) {
           u(id, { saving: false });
           return;
@@ -144,9 +180,9 @@ export default function FuelRecordQueue() {
       if (error) throw error;
 
       setState((m) => {
-        const n = { ...m };
-        delete n[id];
-        return n;
+        const next = { ...m };
+        delete next[id];
+        return next;
       });
 
       await load();
@@ -154,6 +190,34 @@ export default function FuelRecordQueue() {
       u(id, { error: e.message ?? "Failed to record." });
     } finally {
       u(id, { saving: false, uploading: false });
+    }
+  };
+
+  const closeWithoutDispense = async (id: string) => {
+    const st = s(id);
+    const reason = st.notExecutedReason.trim();
+
+    if (!reason) {
+      u(id, { error: "Reason is required when fuel was not dispensed." });
+      return;
+    }
+
+    u(id, { closing: true, error: "" });
+
+    try {
+      await markFuelNotExecuted(id, reason);
+
+      setState((m) => {
+        const next = { ...m };
+        delete next[id];
+        return next;
+      });
+
+      await load();
+    } catch (e: any) {
+      u(id, { error: e.message ?? "Failed to close request." });
+    } finally {
+      u(id, { closing: false });
     }
   };
 
@@ -189,142 +253,184 @@ export default function FuelRecordQueue() {
               const st = s(r.id);
 
               return (
-                <Card key={r.id}>
-                  <div
-                    className="px-4 py-3 border-b"
-                    style={{ borderColor: "var(--border)", background: "var(--green-dim)" }}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="font-bold text-sm" style={{ color: "var(--text)" }}>
-                          {r.profiles?.full_name ?? "—"}
-                        </p>
-                        <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
-                          {r.vehicles?.plate_number ?? "—"} ·{" "}
-                          <span className="capitalize">{r.vehicles?.fuel_type ?? "—"}</span> ·{" "}
-                          {fmtDate(r.request_date)}
-                        </p>
-                        {r.purpose && (
-                          <p className="text-xs mt-1 italic" style={{ color: "var(--text-muted)" }}>
-                            "{r.purpose}"
-                          </p>
-                        )}
-                      </div>
-                      <Badge status={r.status} />
-                    </div>
-                  </div>
-
-                  <div className="p-4 space-y-3">
-                    {st.error && (
-                      <p
-                        className="text-xs px-3 py-2 rounded-lg"
-                        style={{ background: "var(--red-dim)", color: "var(--red)" }}
-                      >
-                        {st.error}
-                      </p>
-                    )}
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="Liters Dispensed *">
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.1"
-                          placeholder="0.0"
-                          value={st.liters}
-                          onChange={(e) => u(r.id, { liters: e.target.value })}
-                        />
-                      </Field>
-
-                      <Field label="Actual Cost (GHS) *">
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          placeholder="0.00"
-                          value={st.amount}
-                          onChange={(e) => u(r.id, { amount: e.target.value })}
-                        />
-                      </Field>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="Mileage (km)">
-                        <Input
-                          type="number"
-                          min="0"
-                          step="1"
-                          placeholder={r.vehicles?.current_mileage?.toString() ?? "Current km"}
-                          value={st.mileage}
-                          onChange={(e) => u(r.id, { mileage: e.target.value })}
-                        />
-                      </Field>
-
-                      <Field label="Vendor / Station">
-                        <Input
-                          placeholder="e.g. Total Spintex"
-                          value={st.vendor}
-                          onChange={(e) => u(r.id, { vendor: e.target.value })}
-                        />
-                      </Field>
-                    </div>
-
-                    <Field label="Notes">
-                      <Input
-                        placeholder="Pump #, attendant name…"
-                        value={st.notes}
-                        onChange={(e) => u(r.id, { notes: e.target.value })}
-                      />
-                    </Field>
-
-                    <Field label="Receipt (optional)">
-                      <div
-                        className="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer border"
-                        style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}
-                        onClick={() => fileInputRefs.current[r.id]?.click()}
-                      >
-                        <span style={{ fontSize: 14 }}>📎</span>
-                        <span className="text-sm" style={{ color: "var(--text-muted)" }}>
-                          {st.receiptFile?.name ?? "Attach receipt image"}
-                        </span>
-                      </div>
-                      <input
-                        ref={(el) => {
-                          fileInputRefs.current[r.id] = el;
-                        }}
-                        type="file"
-                        accept="image/*,.pdf"
-                        className="hidden"
-                        onChange={(e) =>
-                          u(r.id, { receiptFile: e.target.files?.[0] ?? null })
-                        }
-                      />
-                    </Field>
-
-                    {r.notes && (
-                      <div
-                        className="rounded-lg px-3 py-2 text-xs"
-                        style={{
-                          background: "var(--surface-2)",
-                          color: "var(--text-muted)",
-                          border: "1px solid var(--border)",
-                        }}
-                      >
-                        <span style={{ fontWeight: 600, color: "var(--text)" }}>Request Notes: </span>
-                        {r.notes}
-                      </div>
-                    )}
-
-                    <Btn
-                      variant="primary"
-                      className="w-full"
-                      loading={st.saving || st.uploading}
-                      onClick={() => record(r.id)}
+                <div id={`row-${r.id}`} key={r.id}>
+                  <Card>
+                    <div
+                      className="px-4 py-3 border-b"
+                      style={{ borderColor: "var(--border)", background: "var(--green-dim)" }}
                     >
-                      Record Fuel
-                    </Btn>
-                  </div>
-                </Card>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-bold text-sm" style={{ color: "var(--text)" }}>
+                            {r.profiles?.full_name ?? "—"}
+                          </p>
+                          <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                            {r.vehicles?.plate_number ?? "—"} ·{" "}
+                            <span className="capitalize">{r.vehicles?.fuel_type ?? "—"}</span> ·{" "}
+                            {fmtDate(r.request_date)}
+                          </p>
+                          {r.purpose && (
+                            <p className="text-xs mt-1 italic" style={{ color: "var(--text-muted)" }}>
+                              "{r.purpose}"
+                            </p>
+                          )}
+                        </div>
+                        <Badge status={r.status} />
+                      </div>
+                    </div>
+
+                    <div className="p-4 space-y-4">
+                      {st.error && (
+                        <p
+                          className="text-xs px-3 py-2 rounded-lg"
+                          style={{ background: "var(--red-dim)", color: "var(--red)" }}
+                        >
+                          {st.error}
+                        </p>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="Liters Dispensed *">
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.1"
+                            placeholder="0.0"
+                            value={st.liters}
+                            onChange={(e) => u(r.id, { liters: e.target.value })}
+                          />
+                        </Field>
+
+                        <Field label="Actual Cost (GHS) *">
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="0.00"
+                            value={st.amount}
+                            onChange={(e) => u(r.id, { amount: e.target.value })}
+                          />
+                        </Field>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="Mileage (km)">
+                          <Input
+                            type="number"
+                            min="0"
+                            step="1"
+                            placeholder={r.vehicles?.current_mileage?.toString() ?? "Current km"}
+                            value={st.mileage}
+                            onChange={(e) => u(r.id, { mileage: e.target.value })}
+                          />
+                        </Field>
+
+                        <Field label="Vendor / Station">
+                          <Input
+                            placeholder="e.g. Total Spintex"
+                            value={st.vendor}
+                            onChange={(e) => u(r.id, { vendor: e.target.value })}
+                          />
+                        </Field>
+                      </div>
+
+                      <Field label="Notes">
+                        <Input
+                          placeholder="Pump #, attendant name…"
+                          value={st.notes}
+                          onChange={(e) => u(r.id, { notes: e.target.value })}
+                        />
+                      </Field>
+
+                      <Field label="Receipt (optional)">
+                        <div
+                          className="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer border"
+                          style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}
+                          onClick={() => fileInputRefs.current[r.id]?.click()}
+                        >
+                          <span style={{ fontSize: 14 }}>📎</span>
+                          <span className="text-sm" style={{ color: "var(--text-muted)" }}>
+                            {st.receiptFile?.name ?? "Attach receipt image"}
+                          </span>
+                        </div>
+
+                        <input
+                          ref={(el) => {
+                            fileInputRefs.current[r.id] = el;
+                          }}
+                          type="file"
+                          accept="image/*,.pdf"
+                          className="hidden"
+                          onChange={(e) =>
+                            u(r.id, { receiptFile: e.target.files?.[0] ?? null })
+                          }
+                        />
+                      </Field>
+
+                      {r.notes && (
+                        <div
+                          className="rounded-lg px-3 py-2 text-xs"
+                          style={{
+                            background: "var(--surface-2)",
+                            color: "var(--text-muted)",
+                            border: "1px solid var(--border)",
+                          }}
+                        >
+                          <span style={{ fontWeight: 600, color: "var(--text)" }}>
+                            Request Notes:{" "}
+                          </span>
+                          {r.notes}
+                        </div>
+                      )}
+
+                      <Btn
+                        variant="primary"
+                        className="w-full"
+                        loading={st.saving || st.uploading}
+                        onClick={() => record(r.id)}
+                      >
+                        Record Fuel
+                      </Btn>
+
+                      <div
+                        className="rounded-2xl border p-3"
+                        style={{
+                          borderColor: "var(--border)",
+                          background:
+                            "color-mix(in srgb, var(--amber-dim) 30%, var(--surface))",
+                        }}
+                      >
+                        <p className="text-xs font-semibold text-[color:var(--text)]">
+                          No dispensation executed?
+                        </p>
+                        <p className="text-[11px] mt-1 text-[color:var(--text-muted)]">
+                          Use this only if the request was approved but fuel was not dispensed.
+                        </p>
+
+                        <textarea
+                          value={st.notExecutedReason}
+                          onChange={(e) =>
+                            u(r.id, { notExecutedReason: e.target.value })
+                          }
+                          className="tms-textarea mt-3"
+                          placeholder="State why the approved fuel was not dispensed..."
+                          rows={3}
+                        />
+
+                        <div className="mt-3 flex justify-end">
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            disabled={st.closing}
+                            onClick={() => void closeWithoutDispense(r.id)}
+                          >
+                            {st.closing ? "Closing..." : "Mark not executed"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                </div>
               );
             })}
           </div>

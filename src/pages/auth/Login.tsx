@@ -30,10 +30,9 @@ export default function Login() {
   // Already logged in → go home
   useEffect(() => {
     if (!authLoading && user) {
-      const from = (location.state as any)?.from?.pathname ?? "/";
-      navigate(from, { replace: true });
+      navigate("/", { replace: true });
     }
-  }, [user, authLoading]);
+  }, [user, authLoading, navigate]);
 
   // Cooldown countdown timer
   useEffect(() => {

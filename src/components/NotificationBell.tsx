@@ -1,234 +1,346 @@
 // src/components/NotificationBell.tsx
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { useRealtimeTable } from "@/hooks/useRealtimeTable";
-import { debounce } from "@/lib/debounce";
+import {
+  useLiveNotifications,
+  timeAgo,
+  type AppNotification,
+} from "@/hooks/useLiveNotifications";
+import { navigateByNotificationEntity } from "@/lib/notificationRoutes";
 
-type NotificationType = "booking" | "fuel" | "maintenance" | "user" | "system";
-
-type Notification = {
-  id: string;
-  title: string;
-  body: string;
-  type: NotificationType;
-  read: boolean;
-  created_at: string;
-  user_id?: string;
-  link_entity?: string;
-  link_id?: string;
-};
-
-const TYPE_ICON: Record<NotificationType | "default", string> = {
+const ENTITY_ICON: Record<string, string> = {
   booking: "📋",
-  fuel: "⛽",
-  maintenance: "🔧",
-  user: "👤",
-  system: "🔔",
+  fuel_request: "⛽",
+  maintenance_request: "🔧",
+  incident_report: "⚠️",
+  trip: "🚐",
+  news_assignment: "🗂️",
+  user_request: "👤",
+  password_change_request: "🔐",
   default: "🔔",
 };
 
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
+function NotificationToast({
+  row,
+  onOpen,
+  onDismiss,
+}: {
+  row: AppNotification | null;
+  onOpen: (row: AppNotification) => void;
+  onDismiss: () => void;
+}) {
+  if (!row) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(row)}
+      className="fixed top-4 right-4 z-[80] w-[min(92vw,360px)] rounded-2xl border shadow-2xl text-left p-4 transition-all"
+      style={{
+        background: "var(--surface)",
+        borderColor: "var(--border)",
+      }}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className="shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-base"
+          style={{ background: "var(--surface-2)" }}
+        >
+          {ENTITY_ICON[row.entity_type ?? "default"] ?? ENTITY_ICON.default}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm font-semibold text-[color:var(--text)] line-clamp-1">
+              {row.title}
+            </p>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDismiss();
+              }}
+              className="text-xs opacity-60 hover:opacity-100"
+            >
+              ✕
+            </button>
+          </div>
+
+          <p className="mt-1 text-xs text-[color:var(--text-muted)] line-clamp-2">
+            {row.body}
+          </p>
+
+          <p className="mt-2 text-[11px] text-[color:var(--text-dim)]">
+            {timeAgo(row.created_at)}
+          </p>
+        </div>
+      </div>
+    </button>
+  );
 }
 
 export function NotificationBell() {
   const { user } = useAuth();
-
-  const [notifs, setNotifs] = useState<Notification[]>([]);
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [pushActive, setPushActive] = useState(
-    localStorage.getItem("tms-push-subscribed") === "true"
-  );
-
   const panelRef = useRef<HTMLDivElement>(null);
-  const mountedRef = useRef(true);
-  const prevCountRef = useRef(0);
 
-  const unread = useMemo(
-    () => notifs.reduce((count, n) => count + (n.read ? 0 : 1), 0),
-    [notifs]
-  );
+  const pushActive =
+    typeof window !== "undefined" &&
+    localStorage.getItem("tms-push-subscribed") === "true";
 
-  const playSound = () => {
-    try {
-      new Audio("/notification.mp3").play();
-    } catch {}
-  };
-
-  const load = useCallback(async () => {
-    if (!user?.id) {
-      setNotifs([]);
-      return;
-    }
-
-    setLoading(true);
-
-    const { data, error } = await supabase
-      .from("notifications")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(30);
-
-    if (!mountedRef.current) return;
-
-    if (error) {
-      console.error("Notification load failed:", error);
-      setLoading(false);
-      return;
-    }
-
-    const incoming = (data as Notification[]) || [];
-
-    // 🔊 sound only when NEW notification arrives
-    if (incoming.length > prevCountRef.current) {
-      playSound();
-    }
-
-    prevCountRef.current = incoming.length;
-
-    setNotifs(incoming);
-    setLoading(false);
-  }, [user?.id]);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const debouncedReload = useMemo(
-    () => debounce(() => void load(), 250),
-    [load]
-  );
-
-  useRealtimeTable({
-    table: "notifications",
-    filter: user?.id ? `user_id=eq.${user.id}` : undefined,
-    enabled: !!user?.id,
-    event: "*",
-    onChange: debouncedReload,
+  const {
+    rows,
+    unread,
+    loading,
+    toast,
+    setToast,
+    markRead,
+    markAllRead,
+    clearAll,
+    load,
+  } = useLiveNotifications({
+    userId: user?.id,
+    enablePopup: true,
+    enableSound: true,
   });
 
-  const openNotification = async (n: Notification) => {
-    // optimistic update
-    setNotifs((prev) =>
-      prev.map((x) => (x.id === n.id ? { ...x, read: true } : x))
-    );
-
-    // mark read in DB
-    await supabase.from("notifications").update({ read: true }).eq("id", n.id);
-
-    // 🔗 deep link
-    if (n.link_id && n.link_entity) {
-      window.dispatchEvent(
-        new CustomEvent("tms:entity-focus", {
-          detail: {
-            entityId: n.link_id,
-            entityType: n.link_entity,
-          },
-        })
-      );
-    }
-  };
-
   const grouped = useMemo(() => {
-    const today: Notification[] = [];
-    const earlier: Notification[] = [];
-
+    const today: AppNotification[] = [];
+    const earlier: AppNotification[] = [];
     const todayStr = new Date().toDateString();
 
-    notifs.forEach((n) => {
-      if (new Date(n.created_at).toDateString() === todayStr) {
-        today.push(n);
-      } else {
-        earlier.push(n);
-      }
+    rows.forEach((row) => {
+      if (new Date(row.created_at).toDateString() === todayStr) today.push(row);
+      else earlier.push(row);
     });
 
     return { today, earlier };
-  }, [notifs]);
+  }, [rows]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    if (open) document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const openNotification = async (row: AppNotification) => {
+    if (!row.is_read) {
+      await markRead(row.id);
+    }
+    navigateByNotificationEntity(row.entity_type, row.entity_id);
+    setOpen(false);
+    setToast(null);
+  };
+
+  const renderItem = (row: AppNotification, index: number) => (
+    <button
+      key={row.id}
+      type="button"
+      onClick={() => void openNotification(row)}
+      className="w-full text-left px-4 py-3 transition-colors hover:bg-[color:var(--surface-2)]"
+      style={{
+        background: !row.is_read
+          ? "color-mix(in srgb, var(--accent-dim) 35%, transparent)"
+          : "transparent",
+        borderBottom: index >= 0 ? "1px solid var(--border)" : undefined,
+      }}
+    >
+      <div className="flex items-start gap-3">
+        <div className="text-base mt-0.5">
+          {ENTITY_ICON[row.entity_type ?? "default"] ?? ENTITY_ICON.default}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm font-semibold text-[color:var(--text)] line-clamp-1">
+              {row.title}
+            </p>
+            {!row.is_read && (
+              <span
+                className="w-2 h-2 rounded-full shrink-0 mt-1.5"
+                style={{ background: "var(--accent)" }}
+              />
+            )}
+          </div>
+
+          <p className="mt-1 text-xs text-[color:var(--text-muted)] line-clamp-2">
+            {row.body}
+          </p>
+
+          <p className="mt-1 text-[11px] text-[color:var(--text-dim)]">
+            {timeAgo(row.created_at)}
+          </p>
+        </div>
+      </div>
+    </button>
+  );
 
   return (
-    <div className="relative" ref={panelRef}>
-      <button
-        onClick={() => setOpen(!open)}
-        className="relative p-2 rounded-xl"
-      >
-        🔔
+    <>
+      <NotificationToast
+        row={toast}
+        onOpen={(row) => void openNotification(row)}
+        onDismiss={() => setToast(null)}
+      />
 
-        {unread > 0 && (
-          <span className="absolute top-1 right-1 text-[10px] bg-red-500 text-white rounded-full px-1">
-            {unread}
-          </span>
-        )}
-      </button>
+      <div className="relative" ref={panelRef}>
+        <button
+          onClick={() => {
+            setOpen((v) => !v);
+            if (!open) void load();
+          }}
+          className="relative p-2 rounded-xl transition-colors"
+          style={{ color: "var(--text-muted)" }}
+          onMouseEnter={(e) =>
+            (e.currentTarget.style.background = "var(--surface-2)")
+          }
+          onMouseLeave={(e) =>
+            (e.currentTarget.style.background = "transparent")
+          }
+          aria-label="Notifications"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.8}
+              d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+            />
+          </svg>
 
-      {open && (
-        <div className="absolute right-0 mt-2 w-80 bg-white shadow-lg rounded-xl overflow-hidden z-50">
-          {loading ? (
-            <div className="p-4 text-center text-sm">Loading...</div>
-          ) : (
-            <div>
-              {grouped.today.length > 0 && (
+          {unread > 0 && (
+            <span
+              className="absolute top-1 right-1 min-w-[16px] h-4 px-0.5 text-white text-[10px] font-bold rounded-full flex items-center justify-center"
+              style={{ background: "var(--red)" }}
+            >
+              {unread > 9 ? "9+" : unread}
+            </span>
+          )}
+
+          {pushActive && unread === 0 && (
+            <span
+              className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full border-2"
+              style={{
+                background: "var(--green)",
+                borderColor: "var(--surface)",
+              }}
+              title="Push notifications active"
+            />
+          )}
+        </button>
+
+        {open && (
+          <div
+            className="absolute right-0 top-full mt-2 w-80 sm:w-96 rounded-2xl shadow-2xl overflow-hidden z-50"
+            style={{
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+            }}
+          >
+            <div
+              className="px-4 py-3 flex items-center justify-between"
+              style={{ borderBottom: "1px solid var(--border)" }}
+            >
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-sm text-[color:var(--text)]">
+                  Notifications
+                </h3>
+
+                {unread > 0 && (
+                  <span
+                    className="px-1.5 py-0.5 text-xs font-bold rounded-full"
+                    style={{
+                      background: "var(--red-dim)",
+                      color: "var(--red)",
+                    }}
+                  >
+                    {unread}
+                  </span>
+                )}
+
+                {pushActive && (
+                  <span
+                    className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full flex items-center gap-1"
+                    style={{
+                      background: "var(--green-dim)",
+                      color: "var(--green)",
+                    }}
+                  >
+                    <span
+                      className="w-1.5 h-1.5 rounded-full inline-block"
+                      style={{ background: "var(--green)" }}
+                    />
+                    Push on
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {unread > 0 && (
+                  <button
+                    onClick={() => void markAllRead()}
+                    className="text-xs font-medium"
+                    style={{ color: "var(--accent)" }}
+                  >
+                    Mark all read
+                  </button>
+                )}
+                {rows.length > 0 && (
+                  <button
+                    onClick={() => void clearAll()}
+                    className="text-xs"
+                    style={{ color: "var(--text-dim)" }}
+                  >
+                    Clear all
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="overflow-y-auto max-h-96">
+              {loading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="text-sm text-[color:var(--text-muted)]">
+                    Loading...
+                  </div>
+                </div>
+              ) : rows.length === 0 ? (
+                <div className="py-10 px-4 text-center">
+                  <div className="text-2xl mb-2">🔔</div>
+                  <p className="text-sm text-[color:var(--text-muted)]">
+                    No notifications yet
+                  </p>
+                </div>
+              ) : (
                 <>
-                  <p className="px-3 pt-2 text-xs text-gray-500">Today</p>
-                  {grouped.today.map((n) => (
-                    <div
-                      key={n.id}
-                      onClick={() => openNotification(n)}
-                      className={`px-4 py-3 cursor-pointer ${
-                        !n.read ? "bg-blue-50" : ""
-                      }`}
-                    >
-                      <div className="text-sm font-semibold">{n.title}</div>
-                      <div className="text-xs text-gray-500">{n.body}</div>
-                      <div className="text-[10px] text-gray-400">
-                        {timeAgo(n.created_at)}
+                  {grouped.today.length > 0 && (
+                    <>
+                      <div className="px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-[color:var(--text-dim)]">
+                        Today
                       </div>
-                    </div>
-                  ))}
-                </>
-              )}
+                      {grouped.today.map((row, i) => renderItem(row, i))}
+                    </>
+                  )}
 
-              {grouped.earlier.length > 0 && (
-                <>
-                  <p className="px-3 pt-2 text-xs text-gray-500">Earlier</p>
-                  {grouped.earlier.map((n) => (
-                    <div
-                      key={n.id}
-                      onClick={() => openNotification(n)}
-                      className={`px-4 py-3 cursor-pointer ${
-                        !n.read ? "bg-blue-50" : ""
-                      }`}
-                    >
-                      <div className="text-sm font-semibold">{n.title}</div>
-                      <div className="text-xs text-gray-500">{n.body}</div>
-                      <div className="text-[10px] text-gray-400">
-                        {timeAgo(n.created_at)}
+                  {grouped.earlier.length > 0 && (
+                    <>
+                      <div className="px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-[color:var(--text-dim)]">
+                        Earlier
                       </div>
-                    </div>
-                  ))}
+                      {grouped.earlier.map((row, i) => renderItem(row, i))}
+                    </>
+                  )}
                 </>
               )}
             </div>
-          )}
-        </div>
-      )}
-    </div>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
