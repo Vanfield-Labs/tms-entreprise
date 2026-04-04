@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { PageSpinner, EmptyState, Badge, Card, Btn, TabBar } from "@/components/TmsUI";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
+import BookingDetailView from "@/modules/bookings/pages/BookingDetailView";
 
 type Booking = {
   id: string;
@@ -24,10 +25,13 @@ type Booking = {
   vehicle_make: string | null;
   vehicle_model: string | null;
   needs_finance_approval?: boolean | null;
+  expires_at?: string | null;
+  expired_at?: string | null;
 };
 
 type Tab = "active" | "all";
-const ACTIVE_STATUSES = ["draft", "finance_pending", "submitted", "approved", "dispatched"];
+const ACTIVE_STATUSES = ["draft", "rejected", "finance_pending", "submitted", "approved", "dispatched"];
+const EDIT_BOOKING_STORAGE_KEY = "tms-edit-booking-id";
 
 export default function MyBookings() {
   const { user, loading: authLoading } = useAuth();
@@ -35,6 +39,8 @@ export default function MyBookings() {
   const [loading,    setLoading]   = useState(true);
   const [tab,        setTab]       = useState<Tab>("active");
   const [submitting, setSubmitting]= useState<Record<string, boolean>>({});
+  const [amending,   setAmending]  = useState<Record<string, boolean>>({});
+  const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
 
   const load = async () => {
     if (!user?.id) {
@@ -49,7 +55,7 @@ export default function MyBookings() {
       // 1. Fetch user's bookings
       const { data: bookingsRaw, error: bookingsErr } = await supabase
         .from("bookings")
-        .select("id,purpose,trip_date,trip_time,pickup_location,dropoff_location,status,created_at,needs_finance_approval")
+        .select("id,purpose,trip_date,trip_time,pickup_location,dropoff_location,status,created_at,needs_finance_approval,expires_at,expired_at")
         .eq("created_by", user.id)
         .order("created_at", { ascending: false })
         .limit(200);
@@ -176,15 +182,46 @@ export default function MyBookings() {
   const submitBooking = async (id: string) => {
     setSubmitting(m => ({ ...m, [id]: true }));
     try {
-      const booking = rows.find((row) => row.id === id);
-      if (booking?.needs_finance_approval) {
-        await supabase.from("bookings").update({ status: "finance_pending" }).eq("id", id);
-      } else {
-        await supabase.rpc("submit_booking", { p_booking_id: id });
-      }
+      await supabase.rpc("submit_booking", { p_booking_id: id });
       await load();
     } finally {
       setSubmitting(m => ({ ...m, [id]: false }));
+    }
+  };
+
+  const isBookingExpired = (booking: Booking) => {
+    if (booking.expired_at) return true;
+    if (!booking.expires_at) return false;
+    return new Date(booking.expires_at).getTime() <= Date.now();
+  };
+
+  const canAmend = (booking: Booking) => {
+    if (["dispatched", "in_progress", "completed", "closed"].includes(booking.status)) return false;
+    if (isBookingExpired(booking)) return false;
+    return ["draft", "rejected", "finance_pending", "submitted", "approved"].includes(booking.status);
+  };
+
+  const amendBooking = async (booking: Booking) => {
+    setAmending((current) => ({ ...current, [booking.id]: true }));
+
+    try {
+      if (!["draft", "rejected"].includes(booking.status)) {
+        const { error } = await supabase.rpc("request_booking_amendment", {
+          p_booking_id: booking.id,
+        });
+
+        if (error) throw error;
+      }
+
+      sessionStorage.setItem(EDIT_BOOKING_STORAGE_KEY, booking.id);
+      window.dispatchEvent(
+        new CustomEvent("tms:navigate", { detail: { label: "New Booking" } })
+      );
+    } catch (amendError: any) {
+      alert(amendError.message ?? "Failed to reopen booking for amendment.");
+      await load();
+    } finally {
+      setAmending((current) => ({ ...current, [booking.id]: false }));
     }
   };
 
@@ -198,6 +235,15 @@ export default function MyBookings() {
   ];
 
   if (authLoading || loading) return <PageSpinner />;
+
+  if (selectedBookingId) {
+    return (
+      <BookingDetailView
+        bookingId={selectedBookingId}
+        onBack={() => setSelectedBookingId(null)}
+      />
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -302,11 +348,21 @@ export default function MyBookings() {
                 {/* Footer */}
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs text-[color:var(--text-dim)]">{fmtDateTime(b.created_at)}</span>
-                  {b.status === "draft" && (
-                    <Btn variant="primary" size="sm" loading={submitting[b.id]} onClick={() => submitBooking(b.id)}>
-                      Submit
+                  <div className="flex items-center gap-2">
+                    <Btn variant="ghost" size="sm" onClick={() => setSelectedBookingId(b.id)}>
+                      History
                     </Btn>
-                  )}
+                    {canAmend(b) && (
+                      <Btn variant="ghost" size="sm" loading={amending[b.id]} onClick={() => amendBooking(b)}>
+                        Amend
+                      </Btn>
+                    )}
+                    {(b.status === "draft" || b.status === "rejected") && (
+                      <Btn variant="primary" size="sm" loading={submitting[b.id]} onClick={() => submitBooking(b.id)}>
+                        {b.status === "rejected" ? "Resubmit" : "Submit"}
+                      </Btn>
+                    )}
+                  </div>
                 </div>
 
               </div>

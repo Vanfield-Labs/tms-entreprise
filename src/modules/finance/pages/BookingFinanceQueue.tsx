@@ -28,10 +28,15 @@ type Booking = {
   requester_position: string | null;
   requester_division: string | null;
   requester_unit: string | null;
+  finance_approved_at?: string | null;
+  finance_approved_by?: string | null;
+  finance_notes?: string | null;
+  finance_actor_name?: string | null;
 };
 
 export default function BookingFinanceQueue() {
   const [items, setItems] = useState<Booking[]>([]);
+  const [historyItems, setHistoryItems] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<Record<string, boolean>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -43,7 +48,7 @@ export default function BookingFinanceQueue() {
     const { data, error } = await supabase
       .from("bookings")
       .select(
-        "id,purpose,trip_date,trip_time,pickup_location,dropoff_location,booking_type,num_passengers,created_by,created_at,status"
+        "id,purpose,trip_date,trip_time,pickup_location,dropoff_location,booking_type,num_passengers,created_by,created_at,status,finance_approved_at,finance_approved_by,finance_notes"
       )
       .eq("status", "finance_pending")
       .order("created_at", { ascending: false });
@@ -57,11 +62,21 @@ export default function BookingFinanceQueue() {
 
     const bookings = (data as any[]) || [];
 
-    if (bookings.length === 0) {
-      setItems([]);
-      setLoading(false);
-      return;
+    const { data: historyData, error: historyError } = await supabase
+      .from("bookings")
+      .select(
+        "id,purpose,trip_date,trip_time,pickup_location,dropoff_location,booking_type,num_passengers,created_by,created_at,status,finance_approved_at,finance_approved_by,finance_notes"
+      )
+      .not("finance_approved_at", "is", null)
+      .neq("status", "finance_pending")
+      .order("finance_approved_at", { ascending: false })
+      .limit(12);
+
+    if (historyError) {
+      console.error("BookingFinanceQueue history:", historyError.message);
     }
+
+    const historyBookings = (historyData as any[]) || [];
 
     let profileMap: Record<
       string,
@@ -75,13 +90,21 @@ export default function BookingFinanceQueue() {
 
     try {
       const creatorIds = [
-        ...new Set(bookings.map((row: any) => row.created_by).filter(Boolean)),
+        ...new Set(
+          [...bookings, ...historyBookings]
+            .map((row: any) => row.created_by)
+            .filter(Boolean)
+        ),
       ];
+      const financeActorIds = [
+        ...new Set(historyBookings.map((row: any) => row.finance_approved_by).filter(Boolean)),
+      ];
+      const profileIds = [...new Set([...creatorIds, ...financeActorIds])];
 
       const { data: profilesRaw } = await supabase
         .from("profiles")
         .select("user_id,full_name,position_title,division_id,unit_id")
-        .in("user_id", creatorIds);
+        .in("user_id", profileIds);
 
       const profiles = (profilesRaw as any[]) || [];
       const divisionIds = [
@@ -119,24 +142,27 @@ export default function BookingFinanceQueue() {
       console.error("BookingFinanceQueue profile map:", profileError);
     }
 
-    setItems(
-      bookings.map((row: any) => {
-        const profile = profileMap[row.created_by] ?? {
-          name: "Unknown",
-          position: null,
-          division: null,
-          unit: null,
-        };
+    const mapBookingRow = (row: any) => {
+      const profile = profileMap[row.created_by] ?? {
+        name: "Unknown",
+        position: null,
+        division: null,
+        unit: null,
+      };
+      const financeActor = row.finance_approved_by ? profileMap[row.finance_approved_by] : null;
 
-        return {
-          ...row,
-          requester_name: profile.name,
-          requester_position: profile.position,
-          requester_division: profile.division,
-          requester_unit: profile.unit,
-        };
-      })
-    );
+      return {
+        ...row,
+        requester_name: profile.name,
+        requester_position: profile.position,
+        requester_division: profile.division,
+        requester_unit: profile.unit,
+        finance_actor_name: financeActor?.name ?? null,
+      };
+    };
+
+    setItems(bookings.map(mapBookingRow));
+    setHistoryItems(historyBookings.map(mapBookingRow));
     setLoading(false);
   }, []);
 
@@ -184,10 +210,11 @@ export default function BookingFinanceQueue() {
     setActing((prev) => ({ ...prev, [id]: true }));
 
     try {
-      const { error } = await supabase
-        .from("bookings")
-        .update({ status: nextStatus })
-        .eq("id", id);
+      const { error } = await supabase.rpc("finance_review_booking", {
+        p_booking_id: id,
+        p_action: nextStatus === "submitted" ? "approved" : "rejected",
+        p_comment: null,
+      });
 
       if (error) throw error;
       await load();
@@ -367,6 +394,87 @@ export default function BookingFinanceQueue() {
           </div>
         </>
       )}
+
+      <div className="pt-2">
+        <div className="flex items-center gap-2 mb-3">
+          <CountPill n={historyItems.length} color="green" />
+          <span className="text-sm text-[color:var(--text-muted)]">
+            recent finance history
+          </span>
+        </div>
+
+        {historyItems.length === 0 ? (
+          <Card>
+            <div className="p-4 text-sm text-[color:var(--text-muted)]">
+              Reviewed bookings will appear here after finance forwards or rejects them.
+            </div>
+          </Card>
+        ) : (
+          <div className="card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="tms-table">
+                <thead>
+                  <tr>
+                    <th>Purpose</th>
+                    <th>Requester</th>
+                    <th>Finance Decision</th>
+                    <th>Current Status</th>
+                    <th>Reviewed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {historyItems.map((booking) => (
+                    <tr key={`history-${booking.id}`}>
+                      <td>
+                        <div className="min-w-[180px]">
+                          <p className="font-medium text-[color:var(--text)]">{booking.purpose}</p>
+                          <p className="text-xs text-[color:var(--text-muted)]">
+                            {fmtDate(booking.trip_date)}
+                            {booking.trip_time ? ` at ${booking.trip_time}` : ""}
+                          </p>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="min-w-[150px]">
+                          <p className="font-medium text-[color:var(--text)]">{booking.requester_name}</p>
+                          {(booking.requester_division || booking.requester_unit) && (
+                            <p className="text-xs text-[color:var(--text-muted)]">
+                              {[booking.requester_division, booking.requester_unit].filter(Boolean).join(" · ")}
+                            </p>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="min-w-[190px]">
+                          <p className="text-sm text-[color:var(--text)]">
+                            {booking.status === "rejected" ? "Rejected by Finance" : "Forwarded to Corporate"}
+                          </p>
+                          {booking.finance_actor_name && (
+                            <p className="text-xs text-[color:var(--text-muted)]">
+                              by {booking.finance_actor_name}
+                            </p>
+                          )}
+                          {booking.finance_notes && (
+                            <p className="text-xs text-[color:var(--text-dim)] mt-1">
+                              {booking.finance_notes}
+                            </p>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <Badge status={booking.status} />
+                      </td>
+                      <td className="whitespace-nowrap text-[color:var(--text-muted)]">
+                        {booking.finance_approved_at ? fmtDateTime(booking.finance_approved_at) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

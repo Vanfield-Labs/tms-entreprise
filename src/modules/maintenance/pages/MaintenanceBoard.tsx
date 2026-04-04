@@ -153,17 +153,15 @@ export default function MaintenanceBoard() {
       data: { user },
     } = await supabase.auth.getUser();
 
-    const { error } = await supabase.from("maintenance_requests").insert({
-      vehicle_id: fVehicle,
-      reported_by: user?.id,
-      issue_type: fType,
-      issue_description: fDesc.trim(),
-      priority: fPriority,
-      estimated_cost: fEstCost ? parseFloat(fEstCost) : null,
-      scheduled_date: fDate || null,
-      notes: fNotes.trim() || null,
-      requested_by_supervisor: true,
-      status: "reported",
+    const { error } = await supabase.rpc("submit_maintenance_request", {
+      p_vehicle_id: fVehicle,
+      p_issue_type: fType,
+      p_issue_description: fDesc.trim(),
+      p_priority: fPriority,
+      p_estimated_cost: fEstCost ? parseFloat(fEstCost) : null,
+      p_scheduled_date: fDate || null,
+      p_notes: fNotes.trim() || null,
+      p_requested_by_supervisor: true,
     });
 
     setSaving(false);
@@ -224,7 +222,7 @@ export default function MaintenanceBoard() {
         <Card>
           <CardHeader
             title="Request / Schedule Maintenance"
-            subtitle="Submitted for corporate approver review"
+            subtitle="Submitted for finance review first, then corporate approval"
           />
           <CardBody className="space-y-4">
             {formError && (

@@ -13,8 +13,8 @@ type Booking = {
   booking_type: string;
   pickup_location: string;
   dropoff_location: string;
-  passengers: number;
-  notes: string;
+  num_passengers: number | null;
+  trip_notes: string | null;
   created_at: string;
   vehicles?: { plate_number: string } | null;
   drivers?: { license_number: string; profiles?: { full_name: string } | null } | null;
@@ -24,11 +24,11 @@ type AuditEntry = {
   id: string;
   action: string;
   actor_user_id: string;
-  metadata: any;
+  metadata: Record<string, unknown> | null;
   created_at: string;
 };
 
-type Profile = { id: string; full_name: string };
+type Profile = { user_id: string; full_name: string };
 
 const STATUS_STYLES: Record<string, string> = {
   draft: "bg-gray-100 text-gray-600",
@@ -42,16 +42,20 @@ const STATUS_STYLES: Record<string, string> = {
   closed: "bg-gray-200 text-gray-600",
 };
 
-const ACTION_ICON: Record<string, string> = {
-  create: "✏️",
-  submit: "📤",
-  approve: "✅",
-  reject: "❌",
-  dispatch: "🚗",
-  update: "🔄",
-  close: "🔒",
-  complete: "🏁",
-};
+function getActionIcon(action: string) {
+  const normalized = action.toLowerCase();
+
+  if (normalized.includes("draft")) return "✏️";
+  if (normalized.includes("submit")) return "📤";
+  if (normalized.includes("amend") || normalized.includes("update")) return "🔄";
+  if (normalized.includes("approve")) return "✅";
+  if (normalized.includes("reject")) return "❌";
+  if (normalized.includes("dispatch")) return "🚗";
+  if (normalized.includes("close")) return "🔒";
+  if (normalized.includes("complete")) return "🏁";
+
+  return "📝";
+}
 
 export default function BookingDetailView({
   bookingId,
@@ -80,31 +84,42 @@ export default function BookingDetailView({
           .eq("entity_id", bookingId)
           .order("created_at", { ascending: true }),
       ]);
+
       setBooking(b as Booking);
       const entries = (a as AuditEntry[]) || [];
       setAudit(entries);
 
-      const uids = [...new Set(entries.map((e) => e.actor_user_id).filter(Boolean))];
+      const uids = [...new Set(entries.map((entry) => entry.actor_user_id).filter(Boolean))];
       if (uids.length) {
-        const { data: pdata } = await supabase
+        const { data: profileRows } = await supabase
           .from("profiles")
-          .select("id,full_name")
-          .in("id", uids);
+          .select("user_id,full_name")
+          .in("user_id", uids);
+
         const map: Record<string, string> = {};
-        (pdata as Profile[] || []).forEach((p) => { map[p.id] = p.full_name; });
+        (profileRows as Profile[] | null)?.forEach((profile) => {
+          map[profile.user_id] = profile.full_name;
+        });
         setProfiles(map);
       }
+
       setLoading(false);
     })();
 
-    // Real-time
-    const ch = supabase
+    const channel = supabase
       .channel(`booking_detail_${bookingId}`)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "bookings", filter: `id=eq.${bookingId}` }, (payload) => {
-        setBooking((prev) => prev ? { ...prev, ...(payload.new as Partial<Booking>) } : prev);
-      })
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "bookings", filter: `id=eq.${bookingId}` },
+        (payload) => {
+          setBooking((prev) => (prev ? { ...prev, ...(payload.new as Partial<Booking>) } : prev));
+        }
+      )
       .subscribe();
-    return () => { supabase.removeChannel(ch); };
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [bookingId]);
 
   if (loading) {
@@ -119,21 +134,22 @@ export default function BookingDetailView({
     return (
       <div className="text-center py-20 text-gray-400">
         <p className="text-sm">Booking not found.</p>
-        <button className="mt-4 text-xs text-gray-500 underline" onClick={onBack}>← Back</button>
+        <button className="mt-4 text-xs text-gray-500 underline" onClick={onBack}>
+          ← Back
+        </button>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-start gap-3">
         <button
           onClick={onBack}
           className="mt-0.5 shrink-0 w-8 h-8 flex items-center justify-center rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors"
         >
           <svg className="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7"/>
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
         <div className="flex-1 min-w-0">
@@ -147,7 +163,6 @@ export default function BookingDetailView({
         </div>
       </div>
 
-      {/* Details card */}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100">
           <h3 className="font-semibold text-sm text-gray-900">Trip Details</h3>
@@ -156,7 +171,7 @@ export default function BookingDetailView({
           <Detail label="Date & Time" value={`${fmtDate(booking.trip_date)} at ${booking.trip_time}`} />
           <Detail label="Pickup" value={booking.pickup_location} />
           <Detail label="Dropoff" value={booking.dropoff_location} />
-          <Detail label="Passengers" value={String(booking.passengers || 1)} />
+          <Detail label="Passengers" value={String(booking.num_passengers || 1)} />
           {booking.vehicles && <Detail label="Vehicle" value={booking.vehicles.plate_number} />}
           {booking.drivers && (
             <Detail
@@ -164,12 +179,11 @@ export default function BookingDetailView({
               value={booking.drivers.profiles?.full_name || booking.drivers.license_number}
             />
           )}
-          {booking.notes && <Detail label="Notes" value={booking.notes} />}
+          {booking.trip_notes && <Detail label="Notes" value={booking.trip_notes} />}
           <Detail label="Created" value={fmtDateTime(booking.created_at)} />
         </div>
       </div>
 
-      {/* Audit Trail */}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100">
           <h3 className="font-semibold text-sm text-gray-900">Audit Trail</h3>
@@ -179,19 +193,16 @@ export default function BookingDetailView({
           <div className="px-5 py-8 text-center text-sm text-gray-400">No audit history found.</div>
         ) : (
           <div className="relative">
-            {/* Timeline line */}
             <div className="absolute left-[1.85rem] top-0 bottom-0 w-px bg-gray-100" />
             <div className="p-4 space-y-0">
-              {audit.map((entry, i) => {
-                const actionKey = entry.action.split("_")[0];
-                const isLast = i === audit.length - 1;
+              {audit.map((entry, index) => {
+                const isLast = index === audit.length - 1;
+
                 return (
                   <div key={entry.id} className="flex gap-3 relative pb-4 last:pb-0">
-                    {/* Icon */}
                     <div className="shrink-0 w-8 h-8 rounded-full bg-white border-2 border-gray-200 flex items-center justify-center text-sm z-10">
-                      {ACTION_ICON[actionKey] ?? "📝"}
+                      {getActionIcon(entry.action)}
                     </div>
-                    {/* Content */}
                     <div className={`flex-1 min-w-0 ${!isLast ? "pb-4 border-b border-gray-50" : ""}`}>
                       <div className="flex items-start justify-between gap-2">
                         <div>
@@ -211,10 +222,10 @@ export default function BookingDetailView({
                       {entry.metadata && Object.keys(entry.metadata).length > 0 && (
                         <div className="mt-1.5 text-xs text-gray-500 bg-gray-50 rounded-lg px-2.5 py-1.5 font-mono">
                           {Object.entries(entry.metadata)
-                            .filter(([, v]) => v != null && v !== "")
-                            .map(([k, v]) => (
-                              <span key={k} className="inline-block mr-3">
-                                <span className="text-gray-400">{k}:</span> {String(v)}
+                            .filter(([, value]) => value != null && value !== "")
+                            .map(([key, value]) => (
+                              <span key={key} className="inline-block mr-3">
+                                <span className="text-gray-400">{key}:</span> {String(value)}
                               </span>
                             ))}
                         </div>

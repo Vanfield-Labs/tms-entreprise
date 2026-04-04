@@ -27,23 +27,22 @@ type Request = {
   requested_by_supervisor: boolean | null;
   vehicles: { plate_number: string } | null;
   reporter: { full_name: string } | null;
+  finance_approved_at: string | null;
+  finance_approved_by: string | null;
+  finance_notes: string | null;
+  finance_actor_name?: string | null;
 };
 
-function appendDecisionNote(
-  existing: string | null,
-  stage: string,
-  decision: string,
-  comment: string
-) {
-  const trimmed = comment.trim();
-  if (!trimmed) return existing;
-
-  const entry = `[${stage} ${decision}] ${trimmed}`;
-  return existing ? `${existing}\n\n${entry}` : entry;
+function getFinanceDecisionLabel(status: string) {
+  if (status === "finance_rejected") return "Rejected by Finance";
+  if (status === "rejected") return "Rejected by Corporate";
+  if (status === "reported") return "Forwarded to Corporate";
+  return "Reviewed and moved forward";
 }
 
 export default function MaintenanceFinanceQueue() {
   const [requests, setRequests] = useState<Request[]>([]);
+  const [historyRequests, setHistoryRequests] = useState<Request[]>([]);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<Record<string, boolean>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -56,7 +55,7 @@ export default function MaintenanceFinanceQueue() {
     const { data, error } = await supabase
       .from("maintenance_requests")
       .select(
-        "id,issue_type,issue_description,status,created_at,priority,estimated_cost,scheduled_date,notes,requested_by_supervisor,vehicles(plate_number),reporter:reported_by(full_name)"
+        "id,issue_type,issue_description,status,created_at,priority,estimated_cost,scheduled_date,notes,requested_by_supervisor,finance_approved_at,finance_approved_by,finance_notes,vehicles(plate_number),reporter:reported_by(full_name)"
       )
       .eq("status", "finance_pending")
       .order("created_at", { ascending: false });
@@ -68,7 +67,51 @@ export default function MaintenanceFinanceQueue() {
       return;
     }
 
-    setRequests((data as unknown as Request[]) || []);
+    const { data: historyData, error: historyError } = await supabase
+      .from("maintenance_requests")
+      .select(
+        "id,issue_type,issue_description,status,created_at,priority,estimated_cost,scheduled_date,notes,requested_by_supervisor,finance_approved_at,finance_approved_by,finance_notes,vehicles(plate_number),reporter:reported_by(full_name)"
+      )
+      .not("finance_approved_at", "is", null)
+      .neq("status", "finance_pending")
+      .order("finance_approved_at", { ascending: false })
+      .limit(12);
+
+    if (historyError) {
+      console.error("MaintenanceFinanceQueue history:", historyError.message);
+    }
+
+    const liveRequests = (data as unknown as Request[]) || [];
+    const reviewedRequests = (historyData as unknown as Request[]) || [];
+    const financeActorIds = [
+      ...new Set(reviewedRequests.map((row) => row.finance_approved_by).filter(Boolean)),
+    ] as string[];
+
+    let financeActorMap: Record<string, string> = {};
+
+    if (financeActorIds.length > 0) {
+      const { data: financeProfiles } = await supabase
+        .from("profiles")
+        .select("user_id,full_name")
+        .in("user_id", financeActorIds);
+
+      financeActorMap = Object.fromEntries(
+        (((financeProfiles as { user_id: string; full_name: string }[] | null) || []).map((row) => [
+          row.user_id,
+          row.full_name,
+        ]))
+      );
+    }
+
+    setRequests(liveRequests);
+    setHistoryRequests(
+      reviewedRequests.map((row) => ({
+        ...row,
+        finance_actor_name: row.finance_approved_by
+          ? financeActorMap[row.finance_approved_by] ?? null
+          : null,
+      }))
+    );
     setLoading(false);
   }, []);
 
@@ -121,19 +164,11 @@ export default function MaintenanceFinanceQueue() {
     setActing((prev) => ({ ...prev, [request.id]: true }));
 
     try {
-      const { error } = await supabase
-        .from("maintenance_requests")
-        .update({
-          status: nextStatus,
-          notes: appendDecisionNote(
-            request.notes,
-            "Finance",
-            nextStatus === "approved" ? "approved" : "rejected",
-            notes[request.id] ?? ""
-          ),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", request.id);
+      const { error } = await supabase.rpc("finance_review_maintenance", {
+        p_request_id: request.id,
+        p_action: nextStatus,
+        p_comment: notes[request.id] ?? null,
+      });
 
       if (error) throw error;
 
@@ -238,7 +273,7 @@ export default function MaintenanceFinanceQueue() {
                     </div>
 
                     <p className="text-xs text-[color:var(--text-dim)]">
-                      Approval path: Corporate to Finance to Maintenance
+                      Approval path: Finance → Corporate → Maintenance
                     </p>
 
                     {request.notes && (
@@ -276,7 +311,7 @@ export default function MaintenanceFinanceQueue() {
                         loading={acting[request.id]}
                         onClick={() => act(request, "approved")}
                       >
-                        Approve Budget
+                        Send to Corporate
                       </Btn>
                     </div>
                   </div>
@@ -287,6 +322,81 @@ export default function MaintenanceFinanceQueue() {
           })}
         </div>
       )}
+
+      <div className="pt-2">
+        <div className="flex items-center gap-3 mb-3">
+          <CountPill n={historyRequests.length} color="green" />
+          <span className="text-sm" style={{ color: "var(--text-muted)" }}>
+            recent finance history
+          </span>
+        </div>
+
+        {historyRequests.length === 0 ? (
+          <Card>
+            <div className="p-4 text-sm" style={{ color: "var(--text-muted)" }}>
+              Reviewed maintenance requests will appear here after finance forwards or rejects them.
+            </div>
+          </Card>
+        ) : (
+          <div className="card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="tms-table">
+                <thead>
+                  <tr>
+                    <th>Vehicle / Issue</th>
+                    <th>Reporter</th>
+                    <th>Finance Decision</th>
+                    <th>Current Status</th>
+                    <th>Reviewed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {historyRequests.map((request) => (
+                    <tr key={`maintenance-history-${request.id}`}>
+                      <td>
+                        <div className="min-w-[180px]">
+                          <p className="font-medium text-[color:var(--text)]">
+                            {request.vehicles?.plate_number ?? "—"} — {(request.issue_type ?? "other").replace("_", " ")}
+                          </p>
+                          <p className="text-xs text-[color:var(--text-muted)]">
+                            {fmtDate(request.created_at)}
+                          </p>
+                        </div>
+                      </td>
+                      <td className="text-[color:var(--text)]">
+                        {request.reporter?.full_name ?? "Unknown"}
+                      </td>
+                      <td>
+                        <div className="min-w-[200px]">
+                          <p className="text-sm text-[color:var(--text)]">
+                            {getFinanceDecisionLabel(request.status)}
+                          </p>
+                          {request.finance_actor_name && (
+                            <p className="text-xs text-[color:var(--text-muted)]">
+                              by {request.finance_actor_name}
+                            </p>
+                          )}
+                          {request.finance_notes && (
+                            <p className="text-xs text-[color:var(--text-dim)] mt-1">
+                              {request.finance_notes}
+                            </p>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <Badge status={request.status} />
+                      </td>
+                      <td className="whitespace-nowrap" style={{ color: "var(--text-muted)" }}>
+                        {request.finance_approved_at ? fmtDate(request.finance_approved_at) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

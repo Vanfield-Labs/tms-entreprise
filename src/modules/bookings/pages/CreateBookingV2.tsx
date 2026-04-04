@@ -5,6 +5,27 @@ import { Alert, Btn, Card, CardBody, CardHeader, Field, Input, Select } from "@/
 
 type Unit    = { id: string; name: string; division_id: string; parent_unit_id: string | null };
 type Profile = { division_id: string | null; unit_id: string | null; full_name: string };
+type EditableBooking = {
+  id: string;
+  purpose: string | null;
+  trip_date: string | null;
+  trip_time: string | null;
+  gps_address: string | null;
+  pickup_location: string | null;
+  dropoff_location: string | null;
+  call_time: string | null;
+  departure_time: string | null;
+  num_passengers: number | null;
+  multi_vehicle: boolean | null;
+  num_vehicles: number | null;
+  destination: string | null;
+  return_date: string | null;
+  is_return_journey: boolean | null;
+  booking_category: string | null;
+  booking_type: string | null;
+  status: string;
+};
+const EDIT_BOOKING_STORAGE_KEY = "tms-edit-booking-id";
 
 // ─── Booking categories ────────────────────────────────────────────────────────
 type BookingCategory = "pickup" | "dropoff" | "production" | "travelling" | "other";
@@ -52,6 +73,7 @@ export default function CreateBookingV2() {
   const [error, setError] = useState<string | null>(null);
   const [draftId, setDraftId] = useState<string | null>(null);
   const [showDiscard, setShowDiscard] = useState(false);
+  const [loadingExisting, setLoadingExisting] = useState(true);
 
   // ── Shared fields
   const [purpose, setPurpose] = useState("");
@@ -79,6 +101,11 @@ export default function CreateBookingV2() {
   const [travelDepartureTime, setTravelDepartureTime] = useState("");
   const [travelPassengers, setTravelPassengers] = useState("1");
 
+  const trimTime = (value: string | null | undefined) => {
+    if (!value) return "";
+    return value.slice(0, 5);
+  };
+
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -89,6 +116,77 @@ export default function CreateBookingV2() {
       const { data: un } = await supabase.from("units").select("id,name,division_id,parent_unit_id").order("name");
       setUnits((un as Unit[]) || []);
     })();
+  }, []);
+
+  useEffect(() => {
+    const loadExistingBooking = async () => {
+      const editId = sessionStorage.getItem(EDIT_BOOKING_STORAGE_KEY);
+
+      if (!editId) {
+        setLoadingExisting(false);
+        return;
+      }
+
+      try {
+        const { data: booking, error: bookingError } = await supabase
+          .from("bookings")
+          .select("id,purpose,trip_date,trip_time,gps_address,pickup_location,dropoff_location,call_time,departure_time,num_passengers,multi_vehicle,num_vehicles,destination,return_date,is_return_journey,booking_category,booking_type,status")
+          .eq("id", editId)
+          .single();
+
+        if (bookingError) throw bookingError;
+
+        const row = booking as EditableBooking;
+        if (!["draft", "rejected"].includes(row.status)) {
+          sessionStorage.removeItem(EDIT_BOOKING_STORAGE_KEY);
+          setLoadingExisting(false);
+          return;
+        }
+
+        const resolvedCategory = (row.booking_category ?? row.booking_type) as BookingCategory | null;
+        if (!resolvedCategory || !CATEGORIES.some((item) => item.value === resolvedCategory)) {
+          sessionStorage.removeItem(EDIT_BOOKING_STORAGE_KEY);
+          setLoadingExisting(false);
+          return;
+        }
+
+        setDraftId(row.id);
+        setCategory(resolvedCategory);
+        setPurpose(row.purpose ?? "");
+        setTripDate(row.trip_date ?? "");
+        setTripTime(trimTime(row.trip_time));
+        setGpsAddress(row.gps_address ?? "");
+        setPickupLocation(row.pickup_location ?? "");
+        setDropoffLocation(row.dropoff_location ?? "");
+        setCallTime(trimTime(row.call_time));
+        setDepartureTime(trimTime(row.departure_time));
+        setNumPassengers(String(row.num_passengers ?? 1));
+        setMultiVehicle(Boolean(row.multi_vehicle));
+        setNumVehicles(String(row.num_vehicles ?? 2));
+        setDestination(row.destination ?? "");
+        setReturnDate(row.return_date ?? "");
+        setIsReturnJourney(row.is_return_journey ?? true);
+        setTravelCallTime(trimTime(row.call_time));
+        setTravelDepartureTime(trimTime(row.departure_time || row.trip_time));
+        setTravelPassengers(String(row.num_passengers ?? 1));
+        setStep("form");
+        setError(null);
+
+        const { data: visibilityRows } = await supabase
+          .from("booking_visibility_units")
+          .select("unit_id")
+          .eq("booking_id", row.id);
+
+        setRelatedUnitIds(((visibilityRows as { unit_id: string }[] | null) ?? []).map((item) => item.unit_id));
+        sessionStorage.removeItem(EDIT_BOOKING_STORAGE_KEY);
+      } catch (loadError: any) {
+        setError(loadError.message ?? "Failed to load booking for amendment.");
+      } finally {
+        setLoadingExisting(false);
+      }
+    };
+
+    void loadExistingBooking();
   }, []);
 
   const myDivisionUnits = useMemo(() => {
@@ -102,12 +200,30 @@ export default function CreateBookingV2() {
     setRelatedUnitIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
   const resetForm = () => {
+    sessionStorage.removeItem(EDIT_BOOKING_STORAGE_KEY);
     setCategory(null); setStep("category"); setDraftId(null); setError(null);
     setPurpose(""); setTripDate(""); setTripTime(""); setGpsAddress("");
     setPickupLocation(""); setDropoffLocation(""); setCallTime(""); setDepartureTime("");
     setNumPassengers("1"); setMultiVehicle(false); setNumVehicles("2"); setRelatedUnitIds([]);
     setDestination(""); setReturnDate(""); setIsReturnJourney(true);
     setTravelCallTime(""); setTravelDepartureTime(""); setTravelPassengers("1");
+  };
+
+  const logBookingAudit = async (
+    action: string,
+    bookingId: string,
+    metadata: Record<string, unknown> = {}
+  ) => {
+    const { error: auditError } = await supabase.rpc("log_audit", {
+      p_action: action,
+      p_entity_type: "booking",
+      p_entity_id: bookingId,
+      p_metadata: metadata,
+    });
+
+    if (auditError) {
+      console.error("Booking audit failed:", auditError.message);
+    }
   };
 
   // ── Validation per category ──────────────────────────────────────────────────
@@ -144,8 +260,6 @@ export default function CreateBookingV2() {
       const { data: prof } = await supabase.from("profiles")
         .select("division_id,unit_id,full_name").eq("user_id", user.id).single();
 
-      const isNonReturnTravel = category === "travelling" && !isReturnJourney;
-
       const payload: Record<string, unknown> = {
         created_by:        user.id,
         division_id:       (prof as any)?.division_id ?? null,
@@ -158,7 +272,7 @@ export default function CreateBookingV2() {
         booking_type:      category,
         booking_category:  category,
         status:            "draft",
-        needs_finance_approval: isNonReturnTravel,
+        needs_finance_approval: true,
         // pickup/dropoff — both columns are NOT NULL in DB
         pickup_location: pickupLocation.trim() || (category === "travelling" ? "Office" : "—"),
         dropoff_location: category === "dropoff"    ? dropoffLocation.trim() || "—"
@@ -184,19 +298,25 @@ export default function CreateBookingV2() {
       if (id) {
         const { error: updErr } = await supabase.from("bookings").update(payload).eq("id", id);
         if (updErr) throw updErr;
+        await logBookingAudit("booking_amended", id, { status: "draft", category });
       } else {
         const { data: ins, error: insErr } = await supabase.from("bookings").insert(payload).select("id").single();
         if (insErr) throw insErr;
         id = (ins as any)?.id ?? null;
         setDraftId(id);
+        if (id) {
+          await logBookingAudit("booking_draft_saved", id, { status: "draft", category });
+        }
       }
 
       // Shared units for production
-      if (id && relatedUnitIds.length > 0 && category === "production") {
+      if (id) {
         await supabase.from("booking_visibility_units").delete().eq("booking_id", id);
-        await supabase.from("booking_visibility_units").insert(
-          relatedUnitIds.map(uid => ({ booking_id: id, unit_id: uid }))
-        );
+        if (relatedUnitIds.length > 0 && category === "production") {
+          await supabase.from("booking_visibility_units").insert(
+            relatedUnitIds.map(uid => ({ booking_id: id, unit_id: uid }))
+          );
+        }
       }
 
       setStep("review");
@@ -210,16 +330,8 @@ export default function CreateBookingV2() {
     if (!draftId) { setError("No draft found."); return; }
     setSaving(true); setError(null);
     try {
-      const isNonReturnTravel = category === "travelling" && !isReturnJourney;
-      if (isNonReturnTravel) {
-        // Non-return travel: goes to finance_pending first
-        const { error: e } = await supabase.from("bookings")
-          .update({ status: "finance_pending" }).eq("id", draftId);
-        if (e) throw e;
-      } else {
-        const { error: e } = await supabase.rpc("submit_booking", { p_booking_id: draftId });
-        if (e) throw e;
-      }
+      const { error: e } = await supabase.rpc("submit_booking", { p_booking_id: draftId });
+      if (e) throw e;
       setStep("done");
     } catch (e: any) {
       setError(e.message ?? "Failed to submit.");
@@ -228,7 +340,7 @@ export default function CreateBookingV2() {
 
   // ── Render: Done ──────────────────────────────────────────────────────────────
   if (step === "done") {
-    const isNonReturnTravel = category === "travelling" && !isReturnJourney;
+    sessionStorage.removeItem(EDIT_BOOKING_STORAGE_KEY);
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center px-4">
         <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
@@ -238,13 +350,9 @@ export default function CreateBookingV2() {
           </svg>
         </div>
         <h2 className="text-lg font-bold mb-2" style={{ color: "var(--text)" }}>Booking Submitted</h2>
-        {isNonReturnTravel ? (
-          <p className="text-sm mb-6 max-w-xs" style={{ color: "var(--text-muted)" }}>
-            Your travel request has been sent to <strong>Finance</strong> for approval first, then to the Corporate Approver.
-          </p>
-        ) : (
-          <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>Your request has been sent for approval.</p>
-        )}
+        <p className="text-sm mb-6 max-w-xs" style={{ color: "var(--text-muted)" }}>
+          Your booking has been sent to <strong>Finance</strong> for approval first, then to the Corporate Approver.
+        </p>
         <Btn variant="ghost" onClick={resetForm}>New Booking</Btn>
       </div>
     );
@@ -282,6 +390,14 @@ export default function CreateBookingV2() {
   }
 
   const cat = CATEGORIES.find(c => c.value === category)!;
+
+  if (loadingExisting) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-6 h-6 border-2 border-[color:var(--text)] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   // ── Render: Form ──────────────────────────────────────────────────────────────
   if (step === "form") {

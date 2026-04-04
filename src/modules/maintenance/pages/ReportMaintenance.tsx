@@ -22,10 +22,15 @@ export default function ReportMaintenance() {
     if (!vehicleId || !description.trim()) { setError("Please select a vehicle and describe the issue."); return; }
     setSaving(true); setError(null);
     try {
-      const { error: e } = await supabase.from("maintenance_requests").insert({
-        vehicle_id: vehicleId,
-        issue_description: description.trim(),
-        status: "reported",
+      const { error: e } = await supabase.rpc("submit_maintenance_request", {
+        p_vehicle_id: vehicleId,
+        p_issue_type: null,
+        p_issue_description: description.trim(),
+        p_priority: null,
+        p_estimated_cost: null,
+        p_scheduled_date: null,
+        p_notes: null,
+        p_requested_by_supervisor: false,
       });
       if (e) throw e;
       setVehicleId(""); setDescription(""); setSuccess(true);
@@ -39,12 +44,12 @@ export default function ReportMaintenance() {
     <div className="max-w-lg space-y-4">
       {success && (
         <Alert type="success" onDismiss={() => setSuccess(false)}>
-          Maintenance request submitted successfully.
+          Maintenance request submitted to Finance successfully.
         </Alert>
       )}
 
       <Card>
-        <CardHeader title="Report a Maintenance Issue" subtitle="Flag a vehicle for inspection or repair" />
+        <CardHeader title="Report a Maintenance Issue" subtitle="Flag a vehicle for inspection or repair. Finance reviews first." />
         <CardBody className="space-y-4">
           <Field label="Vehicle" required>
             <Select value={vehicleId} onChange={e => setVehicleId(e.target.value)}>

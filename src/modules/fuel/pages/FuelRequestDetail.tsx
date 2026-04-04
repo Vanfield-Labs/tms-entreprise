@@ -26,7 +26,7 @@ type AuditEntry = {
   created_at: string;
 };
 
-type Profile = { id: string; full_name: string };
+type Profile = { user_id: string; full_name: string };
 
 const STATUS_STYLES: Record<string, string> = {
   draft: "bg-gray-100 text-gray-600",
@@ -81,10 +81,10 @@ export default function FuelRequestDetail({
       if (uids.length) {
         const { data: pdata } = await supabase
           .from("profiles")
-          .select("id,full_name")
-          .in("id", uids);
+          .select("user_id,full_name")
+          .in("user_id", uids);
         const map: Record<string, string> = {};
-        (pdata as Profile[] || []).forEach((p) => { map[p.id] = p.full_name; });
+        (pdata as Profile[] || []).forEach((p) => { map[p.user_id] = p.full_name; });
         setProfiles(map);
       }
       setLoading(false);

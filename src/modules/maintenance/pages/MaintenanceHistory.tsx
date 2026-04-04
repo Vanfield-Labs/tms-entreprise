@@ -20,6 +20,7 @@ type Request = {
 const STATUS_STYLES: Record<string, string> = {
   reported: "bg-amber-100 text-amber-700",
   finance_pending: "bg-sky-100 text-sky-700",
+  finance_rejected: "bg-rose-100 text-rose-700",
   approved: "bg-blue-100 text-blue-700",
   in_progress: "bg-violet-100 text-violet-700",
   completed: "bg-emerald-100 text-emerald-700",
@@ -73,7 +74,7 @@ export default function MaintenanceHistory() {
   const vehicleRequests = selectedVehicle === "all" ? requests : requests.filter((r) => r.vehicle_id === selectedVehicle);
   const stats = {
     total: vehicleRequests.length,
-    open: vehicleRequests.filter((r) => !["closed", "rejected"].includes(r.status)).length,
+    open: vehicleRequests.filter((r) => !["closed", "finance_rejected", "rejected"].includes(r.status)).length,
     closed: vehicleRequests.filter((r) => r.status === "closed").length,
     critical: vehicleRequests.filter((r) => r.priority === "critical").length,
   };
@@ -122,7 +123,7 @@ export default function MaintenanceHistory() {
           onChange={(e) => setStatusFilter(e.target.value)}
         >
           <option value="all">All Statuses</option>
-          {["reported", "finance_pending", "approved", "in_progress", "completed", "closed", "rejected"].map((s) => (
+          {["reported", "finance_pending", "finance_rejected", "approved", "in_progress", "completed", "closed", "rejected"].map((s) => (
             <option key={s} value={s}>{s.replace("_", " ")}</option>
           ))}
         </select>
