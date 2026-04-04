@@ -34,6 +34,8 @@ export default function BookingFinanceQueue() {
   const [items, setItems] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<Record<string, boolean>>({});
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [focusedBookingId, setFocusedBookingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -150,6 +152,34 @@ export default function BookingFinanceQueue() {
     onChange: debouncedReload,
   });
 
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ entityType?: string; entityId?: string | null }>
+      ).detail;
+
+      if (detail?.entityType !== "booking" || !detail.entityId) return;
+
+      setFocusedBookingId(detail.entityId);
+      setExpanded(detail.entityId);
+
+      window.setTimeout(() => {
+        document
+          .getElementById(`booking-finance-${detail.entityId}`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 120);
+
+      window.setTimeout(() => {
+        setFocusedBookingId((current) =>
+          current === detail.entityId ? null : current
+        );
+      }, 4500);
+    };
+
+    window.addEventListener("tms:entity-focus", handler);
+    return () => window.removeEventListener("tms:entity-focus", handler);
+  }, []);
+
   const act = async (id: string, nextStatus: "submitted" | "rejected") => {
     setActing((prev) => ({ ...prev, [id]: true }));
 
@@ -187,13 +217,32 @@ export default function BookingFinanceQueue() {
           </div>
 
           <div className="space-y-3">
-            {items.map((booking) => (
-              <Card key={booking.id}>
-                <div className="px-4 py-3 border-b border-[color:var(--border)] bg-[color:var(--amber-dim)]/30">
+            {items.map((booking) => {
+              const isOpen = expanded === booking.id;
+              const isFocused = focusedBookingId === booking.id;
+
+              return (
+              <div key={booking.id} id={`booking-finance-${booking.id}`}>
+              <Card>
+                <div
+                  className="px-4 py-3 border-b border-[color:var(--border)] bg-[color:var(--amber-dim)]/30"
+                  style={{
+                    boxShadow: isFocused
+                      ? "0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent), 0 18px 40px rgba(0,0,0,0.12)"
+                      : undefined,
+                    transition: "all 0.3s ease",
+                  }}
+                >
                   <div className="flex items-start justify-between gap-2">
-                    <h3 className="font-semibold text-sm text-[color:var(--text)]">
-                      {booking.purpose}
-                    </h3>
+                    <div className="min-w-0">
+                      <h3 className="font-semibold text-sm text-[color:var(--text)]">
+                        {booking.purpose}
+                      </h3>
+                      <p className="text-[11px] mt-1 text-[color:var(--text-dim)]">
+                        {fmtDate(booking.trip_date)}
+                        {booking.trip_time ? ` at ${booking.trip_time}` : ""}
+                      </p>
+                    </div>
                     <Badge status="finance_pending" label="Finance Review" />
                   </div>
                 </div>
@@ -257,25 +306,43 @@ export default function BookingFinanceQueue() {
                   </p>
                 </div>
 
-                <div className="px-4 py-3 space-y-2 border-b border-[color:var(--border)]">
-                  <p className="text-xs text-[color:var(--text-muted)]">
-                    <span className="font-medium">{fmtDate(booking.trip_date)}</span>
-                    {booking.trip_time ? ` at ${booking.trip_time}` : ""}
-                  </p>
+                <button
+                  type="button"
+                  className="w-full px-4 py-3 text-left border-b border-[color:var(--border)]"
+                  onClick={() => setExpanded((current) => (current === booking.id ? null : booking.id))}
+                >
                   <p className="text-xs text-[color:var(--text-muted)]">
                     {booking.pickup_location} → {booking.dropoff_location}
                   </p>
-                  {booking.booking_type && (
-                    <p className="text-xs text-[color:var(--text-dim)] capitalize">
-                      Type: {booking.booking_type.replace(/_/g, " ")}
+                  <p className="text-[11px] mt-1 text-[color:var(--accent)] font-medium">
+                    {isOpen ? "Hide details" : "View details"}
+                  </p>
+                </button>
+
+                {isOpen && (
+                  <div className="px-4 py-3 space-y-2 border-b border-[color:var(--border)]">
+                    <p className="text-xs text-[color:var(--text-muted)]">
+                      <span className="font-medium">{fmtDate(booking.trip_date)}</span>
+                      {booking.trip_time ? ` at ${booking.trip_time}` : ""}
                     </p>
-                  )}
-                  {booking.num_passengers != null && (
+                    <p className="text-xs text-[color:var(--text-muted)]">
+                      {booking.pickup_location} → {booking.dropoff_location}
+                    </p>
+                    {booking.booking_type && (
+                      <p className="text-xs text-[color:var(--text-dim)] capitalize">
+                        Type: {booking.booking_type.replace(/_/g, " ")}
+                      </p>
+                    )}
+                    {booking.num_passengers != null && (
+                      <p className="text-xs text-[color:var(--text-dim)]">
+                        Passengers: {booking.num_passengers}
+                      </p>
+                    )}
                     <p className="text-xs text-[color:var(--text-dim)]">
-                      Passengers: {booking.num_passengers}
+                      Approval path: Finance → Corporate → Transport
                     </p>
-                  )}
-                </div>
+                  </div>
+                )}
 
                 <div className="p-4 grid grid-cols-2 gap-3">
                   <Btn
@@ -294,7 +361,9 @@ export default function BookingFinanceQueue() {
                   </Btn>
                 </div>
               </Card>
-            ))}
+              </div>
+            );
+            })}
           </div>
         </>
       )}

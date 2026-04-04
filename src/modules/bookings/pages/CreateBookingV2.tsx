@@ -152,7 +152,9 @@ export default function CreateBookingV2() {
         unit_id:           (prof as any)?.unit_id ?? null,
         purpose:           purpose.trim(),
         trip_date:         tripDate,
-        trip_time:         tripTime || null,
+        trip_time:         tripTime || 
+          (category === "production" ? departureTime || callTime : null) ||
+          (category === "travelling" ? travelDepartureTime || travelCallTime : null) || "00:00",
         booking_type:      category,
         booking_category:  category,
         status:            "draft",

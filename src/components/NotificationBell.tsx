@@ -121,6 +121,23 @@ export function NotificationBell({ currentUserId }: NotificationBellProps) {
   }, [rows]);
 
   useEffect(() => {
+    if (!currentUserId) return;
+    void load();
+
+    const refreshNotifications = () => {
+      if (!document.hidden) void load();
+    };
+
+    window.addEventListener("focus", refreshNotifications);
+    document.addEventListener("visibilitychange", refreshNotifications);
+
+    return () => {
+      window.removeEventListener("focus", refreshNotifications);
+      document.removeEventListener("visibilitychange", refreshNotifications);
+    };
+  }, [currentUserId, load]);
+
+  useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         setOpen(false);

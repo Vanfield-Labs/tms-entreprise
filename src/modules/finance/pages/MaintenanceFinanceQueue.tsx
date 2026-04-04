@@ -48,6 +48,7 @@ export default function MaintenanceFinanceQueue() {
   const [acting, setActing] = useState<Record<string, boolean>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [focusedRequestId, setFocusedRequestId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,6 +83,39 @@ export default function MaintenanceFinanceQueue() {
     event: "*",
     onChange: debouncedReload,
   });
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ entityType?: string; entityId?: string | null }>
+      ).detail;
+
+      if (
+        !detail?.entityId ||
+        !["maintenance_request", "maintenance"].includes(detail.entityType ?? "")
+      ) {
+        return;
+      }
+
+      setFocusedRequestId(detail.entityId);
+      setExpanded(detail.entityId);
+
+      window.setTimeout(() => {
+        document
+          .getElementById(`maintenance-finance-${detail.entityId}`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 120);
+
+      window.setTimeout(() => {
+        setFocusedRequestId((current) =>
+          current === detail.entityId ? null : current
+        );
+      }, 4500);
+    };
+
+    window.addEventListener("tms:entity-focus", handler);
+    return () => window.removeEventListener("tms:entity-focus", handler);
+  }, []);
 
   const act = async (request: Request, nextStatus: "approved" | "rejected") => {
     setActing((prev) => ({ ...prev, [request.id]: true }));
@@ -132,12 +166,20 @@ export default function MaintenanceFinanceQueue() {
         <div className="space-y-3">
           {requests.map((request) => {
             const isOpen = expanded === request.id;
+            const isFocused = focusedRequestId === request.id;
 
             return (
-              <Card key={request.id}>
+              <div key={request.id} id={`maintenance-finance-${request.id}`}>
+              <Card>
                 <button
                   className="w-full text-left px-4 py-3"
                   onClick={() => setExpanded(isOpen ? null : request.id)}
+                  style={{
+                    boxShadow: isFocused
+                      ? "0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent), 0 18px 40px rgba(0,0,0,0.12)"
+                      : undefined,
+                    transition: "all 0.3s ease",
+                  }}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
@@ -195,6 +237,10 @@ export default function MaintenanceFinanceQueue() {
                       )}
                     </div>
 
+                    <p className="text-xs text-[color:var(--text-dim)]">
+                      Approval path: Corporate to Finance to Maintenance
+                    </p>
+
                     {request.notes && (
                       <p className="text-xs italic whitespace-pre-wrap" style={{ color: "var(--text-muted)" }}>
                         {request.notes}
@@ -236,6 +282,7 @@ export default function MaintenanceFinanceQueue() {
                   </div>
                 )}
               </Card>
+              </div>
             );
           })}
         </div>

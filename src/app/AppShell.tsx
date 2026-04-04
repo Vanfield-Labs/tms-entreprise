@@ -1,5 +1,5 @@
 // src/app/AppShell.tsx
-import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/context/ThemeContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -11,6 +11,20 @@ import { useAuth } from "@/hooks/useAuth";
 const NAV_STORAGE_KEY = "tms-active-nav-label";
 const LAST_ROUTE_STORAGE_KEY = "tms-last-path";
 const legacyNavStorageKey = NAV_STORAGE_KEY;
+
+function readStoredNavLabel(key: string) {
+  return sessionStorage.getItem(key) ?? localStorage.getItem(key);
+}
+
+function writeStoredNavLabel(key: string, value: string) {
+  sessionStorage.setItem(key, value);
+  localStorage.setItem(key, value);
+}
+
+function clearStoredNavLabel(key: string) {
+  sessionStorage.removeItem(key);
+  localStorage.removeItem(key);
+}
 
 const ENTITY_ICON: Record<string, string> = {
   booking: "📅",
@@ -470,13 +484,13 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
     return `${NAV_STORAGE_KEY}:${path}:${title.toLowerCase()}`;
   }, [title]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!items.length) return;
 
     // Clear the old global key so dashboards do not inherit each other's last tab.
-    sessionStorage.removeItem(legacyNavStorageKey);
+    clearStoredNavLabel(legacyNavStorageKey);
 
-    const savedLabel = sessionStorage.getItem(navStorageKey);
+    const savedLabel = readStoredNavLabel(navStorageKey);
     if (!savedLabel) return;
 
     const idx = items.findIndex((item) => item.label === savedLabel);
@@ -497,7 +511,7 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
   const label = item?.label ?? "";
 
   if (label) {
-    sessionStorage.setItem(navStorageKey, label);
+    writeStoredNavLabel(navStorageKey, label);
   }
 
   if (item && !isElementItem(item)) item.onClick();
@@ -541,10 +555,24 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
 
   useEffect(() => {
     const onNavigate = (e: Event) => {
-      const label = (e as CustomEvent<{ label: string }>).detail?.label;
-      if (!label) return;
-      const idx = items.findIndex((item) => item.label === label);
-      if (idx !== -1) go(idx);
+      const detail = (
+        e as CustomEvent<{
+          label?: string;
+          entityType?: string;
+          entityId?: string | null;
+        }>
+      ).detail;
+      const label = detail?.label;
+      const idx = label ? items.findIndex((item) => item.label === label) : -1;
+
+      if (idx !== -1) {
+        go(idx);
+        return;
+      }
+
+      if (detail?.entityType) {
+        navigateByEntity(detail.entityType, detail.entityId);
+      }
     };
     window.addEventListener("tms:navigate", onNavigate);
     return () => window.removeEventListener("tms:navigate", onNavigate);
@@ -557,8 +585,8 @@ const handleSignOut = async () => {
   setShowSignOutConfirm(false);
 
   try {
-    sessionStorage.removeItem(legacyNavStorageKey);
-    sessionStorage.removeItem(navStorageKey);
+    clearStoredNavLabel(legacyNavStorageKey);
+    clearStoredNavLabel(navStorageKey);
     sessionStorage.removeItem(LAST_ROUTE_STORAGE_KEY);
 
     const keysToWipe = [
@@ -677,11 +705,13 @@ const handleSignOut = async () => {
 
   const navigateByEntity = (entityType: string, entityId?: string | null) => {
     const candidateMap: Record<string, string[]> = {
-      booking: ["Dispatch", "All Bookings", "My Bookings", "Booking Approvals", "Reports"],
-      fuel: ["Fuel Request", "Fuel Approvals", "Record Fuel", "Fuel History", "Reports"],
-      maintenance: ["Maintenance", "Maint. History", "Maintenance History", "Maintenance Approvals", "Reports"],
-      incident: ["Incidents", "Reports"],
-      trip: ["Close Trips", "Dispatch", "Reports"],
+      booking: ["Finance Bookings", "Booking Approvals", "Dispatch", "All Bookings", "My Bookings", "Reports"],
+      fuel_request: ["Fuel Approvals", "Fuel Requests", "Record Fuel", "Fuel History", "Reports"],
+      maintenance_request: ["Finance Maintenance", "Maintenance Approvals", "Maintenance", "Maint. History", "Maintenance History", "Reports"],
+      incident_report: ["Incidents", "Incident Report", "Reports"],
+      trip: ["Close Trips", "Dispatch", "My Trips", "Reports"],
+      user_request: ["Users", "User Requests", "Reports"],
+      password_change_request: ["Users", "User Requests", "Reports"],
       approval: ["Reports"],
     };
 
