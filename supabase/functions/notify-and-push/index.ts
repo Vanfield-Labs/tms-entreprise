@@ -10,6 +10,21 @@ const cors = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+function normalizeEntityType(value?: string | null) {
+  switch (value) {
+    case "fuel":
+      return "fuel_request";
+    case "maintenance":
+      return "maintenance_request";
+    case "user":
+      return "user_request";
+    case "incident":
+      return "incident_report";
+    default:
+      return value ?? "system";
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
@@ -21,38 +36,52 @@ Deno.serve(async (req) => {
     );
 
     const {
+      recipient_id,
       user_id,
       title,
       body,
+      priority = "normal",
+      entity_type,
+      entity_id,
       type = "system",
       link_entity,
       link_id,
       data = {},
     } = await req.json() as {
-      user_id:      string;
-      title:        string;
-      body:         string;
-      type?:        string;
-      link_entity?: string;
-      link_id?:     string;
-      data?:        Record<string, string>;
+      recipient_id?: string;
+      user_id?:      string;
+      title:         string;
+      body:          string;
+      priority?:     string;
+      entity_type?:  string;
+      entity_id?:    string;
+      type?:         string;
+      link_entity?:  string;
+      link_id?:      string;
+      data?:         Record<string, string>;
     };
 
-    if (!user_id || !title || !body) {
-      return new Response(JSON.stringify({ error: "user_id, title, and body are required" }), {
+    const recipientId = recipient_id ?? user_id;
+    const normalizedEntityType = normalizeEntityType(
+      entity_type ?? link_entity ?? type
+    );
+    const normalizedEntityId = entity_id ?? link_id ?? null;
+
+    if (!recipientId || !title || !body) {
+      return new Response(JSON.stringify({ error: "recipient_id, title, and body are required" }), {
         status: 400, headers: { ...cors, "Content-Type": "application/json" },
       });
     }
 
     // 1. Insert notification into notifications table
     const { error: notifErr } = await adminClient.from("notifications").insert({
-      user_id,
+      recipient_id: recipientId,
       title,
       body,
-      type,
-      link_entity: link_entity ?? null,
-      link_id:     link_id ?? null,
-      read:        false,
+      priority,
+      entity_type: normalizedEntityType ?? "system",
+      entity_id: normalizedEntityId,
+      is_read: false,
     });
 
     if (notifErr) {
@@ -70,7 +99,20 @@ Deno.serve(async (req) => {
         Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
         apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
       },
-      body: JSON.stringify({ user_id, title, body, data: { ...data, url: link_id ? `/${link_entity}s/${link_id}` : "/" } }),
+      body: JSON.stringify({
+        user_id: recipientId,
+        title,
+        body,
+        data: {
+          ...data,
+          entity_type: normalizedEntityType ?? "system",
+          entity_id: normalizedEntityId ?? "",
+          url:
+            normalizedEntityType && normalizedEntityId
+              ? `/${normalizedEntityType}/${normalizedEntityId}`
+              : "/",
+        },
+      }),
     });
 
     const pushResult = pushRes.ok ? await pushRes.json() : { sent: 0, failed: 0, error: "push function failed" };

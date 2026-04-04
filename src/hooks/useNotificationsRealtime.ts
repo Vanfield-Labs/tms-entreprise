@@ -6,7 +6,7 @@ export function useNotificationsRealtime(
 ) {
   useRealtimeTable({
     table: "notifications",
-    filter: userId ? `user_id=eq.${userId}` : undefined,
+    filter: userId ? `recipient_id=eq.${userId}` : undefined,
     enabled: !!userId,
     event: "*",
     onChange: reload,

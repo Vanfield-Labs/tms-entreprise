@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import AdminLayout        from "@/layouts/AdminLayout";
 import CorporateLayout    from "@/layouts/CorporateLayout";
+import FinanceLayout      from "@/layouts/FinanceLayout";
 import TransportLayout    from "@/layouts/TransportLayout";
 import DepartmentLayout   from "@/layouts/DepartmentLayout";
 import DriverLayout       from "@/layouts/DriverLayout";
@@ -156,6 +157,7 @@ export default function DashboardRouter() {
   switch (profile.system_role) {
     case "admin":                return <AdminLayout />;
     case "corporate_approver":   return <CorporateLayout />;
+    case "finance_manager":      return <FinanceLayout />;
     case "transport_supervisor": return <TransportLayout />;
     case "driver":               return <DriverLayout />;
     case "unit_head":

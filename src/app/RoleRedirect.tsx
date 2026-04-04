@@ -11,6 +11,7 @@ const JOY_BUSINESS_UNIT_ID = "0dc91872-e758-4392-9ef5-34e6434188e1";
 const ROLE_HOME: Record<string, string> = {
   admin:                "/dashboard/admin",
   corporate_approver:   "/dashboard/corporate",
+  finance_manager:      "/dashboard/finance",
   transport_supervisor: "/dashboard/transport",
   driver:               "/dashboard/driver",
 };

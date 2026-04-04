@@ -50,7 +50,7 @@ export function EmptyState({
 export function Badge({ status, label }: { status: string; label?: string }) {
   return (
     <span className={`badge badge-${status.toLowerCase().replace(/\s+/g, "_")}`}>
-      {label ?? status}
+      {label ?? status.replace(/_/g, " ")}
     </span>
   );
 }

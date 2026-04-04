@@ -135,7 +135,7 @@ export default function UnitHeadDashboard() {
     const { data: bookData } = await supabase.from("bookings")
       .select("id,purpose,trip_date,trip_time,status,pickup_location,dropoff_location,created_by")
       .eq("unit_id", unitId)
-      .in("status", ["submitted","approved","dispatched","in_progress","draft"])
+      .in("status", ["draft","finance_pending","submitted","approved","dispatched","in_progress"])
       .order("trip_date", { ascending: false }).limit(50);
 
     const reqIds = [...new Set(((bookData as any[]) || []).map((b: any) => b.created_by))];
@@ -209,7 +209,7 @@ export default function UnitHeadDashboard() {
   ];
   const counts = {
     schedule: staff.filter(s => !s.pickup_id).length,
-    bookings: bookings.filter(b => ["submitted","draft"].includes(b.booking_status ?? b.status ?? "")).length,
+    bookings: bookings.filter(b => ["draft","finance_pending","submitted"].includes(b.booking_status ?? b.status ?? "")).length,
     camera: deployedTechs.length,
   };
 

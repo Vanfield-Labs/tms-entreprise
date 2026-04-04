@@ -2,14 +2,14 @@
 // Guards all dashboard routes. Also redirects to /2fa if:
 // - user has TOTP enrolled (aal2 required)
 // - current session is only aal1 (password only)
-// - user's role is admin or corporate_approver
+// - user's role is admin, corporate_approver, or finance_manager
 
 import { useEffect, useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 
-const MFA_REQUIRED_ROLES = ["admin", "corporate_approver"];
+const MFA_REQUIRED_ROLES = ["admin", "corporate_approver", "finance_manager"];
 const CAMERA_UNIT_ID = "252e08c0-0999-4afe-9eff-a15365bd4d47";
 const JOY_NEWS_UNIT_ID = "f34cb9c1-334a-4503-9e39-06980e6f4d74";
 const ADOM_NEWS_UNIT_ID = "61ef9897-c284-43fe-a60d-7a22fa4e1a11";
@@ -18,6 +18,7 @@ const JOY_BUSINESS_UNIT_ID = "0dc91872-e758-4392-9ef5-34e6434188e1";
 const ROLE_HOME: Record<string, string> = {
   admin: "/dashboard/admin",
   corporate_approver: "/dashboard/corporate",
+  finance_manager: "/dashboard/finance",
   transport_supervisor: "/dashboard/transport",
   driver: "/dashboard/driver",
 };
@@ -101,6 +102,7 @@ export default function ProtectedLayout() {
     const dashboardPaths = [
       "/dashboard/admin",
       "/dashboard/corporate",
+      "/dashboard/finance",
       "/dashboard/transport",
       "/dashboard/driver",
       "/dashboard/department",

@@ -13,7 +13,7 @@ type Booking = {
   status: string; created_at: string; booking_type: string;
 };
 
-const STATUS_OPTS = ["all", "draft", "submitted", "approved", "rejected", "dispatched", "completed", "closed"];
+const STATUS_OPTS = ["all", "draft", "finance_pending", "submitted", "approved", "rejected", "dispatched", "completed", "closed"];
 
 export default function BookingsTable() {
   const [rows, setRows] = useState<Booking[]>([]);
@@ -88,7 +88,13 @@ const { flashIds, flash } = useFlashHighlight();
           <SearchInput value={q} onChange={setQ} placeholder="Search purpose or location\u2026" />
         </div>
         <select value={status} onChange={e => setStatus(e.target.value)} className="tms-select sm:w-40">
-          {STATUS_OPTS.map(s => <option key={s} value={s}>{s === "all" ? "All statuses" : s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+            {STATUS_OPTS.map(s => (
+              <option key={s} value={s}>
+                {s === "all"
+                  ? "All statuses"
+                  : s.replace(/_/g, " ").charAt(0).toUpperCase() + s.replace(/_/g, " ").slice(1)}
+              </option>
+            ))}
         </select>
       </div>
 

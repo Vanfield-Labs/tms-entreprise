@@ -31,6 +31,19 @@ type Request = {
   reporter: { full_name: string } | null;
 };
 
+function appendDecisionNote(
+  existing: string | null,
+  stage: string,
+  decision: string,
+  comment: string
+) {
+  const trimmed = comment.trim();
+  if (!trimmed) return existing;
+
+  const entry = `[${stage} ${decision}] ${trimmed}`;
+  return existing ? `${existing}\n\n${entry}` : entry;
+}
+
 export default function MaintenanceApprovalQueue() {
   const [requests, setRequests] = useState<Request[]>([]);
   const [loading, setLoading] = useState(true);
@@ -100,11 +113,21 @@ export default function MaintenanceApprovalQueue() {
     setActing((m) => ({ ...m, [id]: true }));
 
     try {
-      const { error } = await supabase.rpc("approve_maintenance", {
-        p_request_id: id,
-        p_action: action,
-        p_notes: notes[id] ?? null,
-      });
+      const request = requests.find((row) => row.id === id);
+      const nextStatus = action === "approved" ? "finance_pending" : "rejected";
+      const { error } = await supabase
+        .from("maintenance_requests")
+        .update({
+          status: nextStatus,
+          notes: appendDecisionNote(
+            request?.notes ?? null,
+            "Corporate",
+            action === "approved" ? "approved" : "rejected",
+            notes[id] ?? ""
+          ),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id);
 
       if (error) throw error;
 
@@ -257,7 +280,7 @@ export default function MaintenanceApprovalQueue() {
                           loading={acting[r.id]}
                           onClick={() => act(r.id, "approved")}
                         >
-                          Approve
+                          Send to Finance
                         </Btn>
 
                         <Btn

@@ -46,6 +46,7 @@ type Tab = "pending" | "approved" | "in_progress" | "completed" | "new";
 
 const STATUS_LABEL: Record<string, string> = {
   reported: "Pending",
+  finance_pending: "Finance Review",
   approved: "Approved",
   in_progress: "In Progress",
   completed: "Completed",
@@ -184,7 +185,7 @@ export default function MaintenanceBoard() {
   };
 
   const tabMap: Record<Tab, string[]> = {
-    pending: ["reported"],
+    pending: ["reported", "finance_pending"],
     approved: ["approved"],
     in_progress: ["in_progress"],
     completed: ["completed", "closed"],
@@ -203,7 +204,7 @@ export default function MaintenanceBoard() {
   ];
 
   const counts: Partial<Record<Tab, number>> = {
-    pending: requests.filter((r) => r.status === "reported").length,
+    pending: requests.filter((r) => ["reported", "finance_pending"].includes(r.status)).length,
     approved: requests.filter((r) => r.status === "approved").length,
     in_progress: requests.filter((r) => r.status === "in_progress").length,
     completed: requests.filter((r) => ["completed", "closed"].includes(r.status)).length,

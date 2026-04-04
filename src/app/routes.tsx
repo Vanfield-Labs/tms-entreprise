@@ -8,6 +8,7 @@ import TwoFactorChallenge from "@/pages/auth/TwoFactorChallenge";
 // Role layouts
 import AdminLayout from "@/layouts/AdminLayout";
 import CorporateLayout from "@/layouts/CorporateLayout";
+import FinanceLayout from "@/layouts/FinanceLayout";
 import TransportLayout from "@/layouts/TransportLayout";
 import DriverLayout from "@/layouts/DriverLayout";
 import DepartmentLayout from "@/layouts/DepartmentLayout";
@@ -33,6 +34,7 @@ export const routes: RouteObject[] = [
 
       { path: "/dashboard/admin", element: <AdminLayout /> },
       { path: "/dashboard/corporate", element: <CorporateLayout /> },
+      { path: "/dashboard/finance", element: <FinanceLayout /> },
       { path: "/dashboard/transport", element: <TransportLayout /> },
       { path: "/dashboard/driver", element: <DriverLayout /> },
       { path: "/dashboard/department", element: <DepartmentLayout /> },

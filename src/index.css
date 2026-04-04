@@ -357,6 +357,7 @@ body {
 
 .badge-draft        { background: var(--surface-2);  color: var(--text-muted); }
 .badge-submitted    { background: var(--amber-dim);   color: var(--amber); }
+.badge-finance_pending { background: color-mix(in srgb, var(--accent-dim) 72%, white); color: var(--accent); }
 .badge-approved     { background: var(--green-dim);   color: var(--green); }
 .badge-rejected     { background: var(--red-dim);     color: var(--red); }
 .badge-dispatched   { background: var(--accent-dim);  color: var(--accent); }

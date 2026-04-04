@@ -30,6 +30,40 @@ function canPlaySound() {
   return raw !== "false";
 }
 
+function sortAndLimitRows(rows: AppNotification[], limit: number) {
+  return [...rows]
+    .sort(
+      (a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    )
+    .slice(0, limit);
+}
+
+function normalizeNotificationRow(row: any): AppNotification | null {
+  if (
+    !row?.id ||
+    !row?.recipient_id ||
+    !row?.title ||
+    !row?.body ||
+    !row?.created_at
+  ) {
+    return null;
+  }
+
+  return {
+    id: String(row.id),
+    recipient_id: String(row.recipient_id),
+    title: String(row.title),
+    body: String(row.body),
+    priority: String(row.priority ?? "normal"),
+    entity_type: row.entity_type ? String(row.entity_type) : null,
+    entity_id: row.entity_id ? String(row.entity_id) : null,
+    is_read: Boolean(row.is_read),
+    read_at: row.read_at ? String(row.read_at) : null,
+    created_at: String(row.created_at),
+  };
+}
+
 export function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
@@ -51,10 +85,37 @@ export function useLiveNotifications({
   const [toast, setToast] = useState<AppNotification | null>(null);
   const previousTopId = useRef<string | null>(null);
   const mounted = useRef(true);
+  const toastTimeout = useRef<number | null>(null);
 
   const unread = useMemo(
     () => rows.reduce((n, row) => n + (row.is_read ? 0 : 1), 0),
     [rows]
+  );
+
+  const queueToast = useCallback(
+    (notification: AppNotification) => {
+      if (enableSound && canPlaySound()) {
+        try {
+          const audio = new Audio("/notification.mp3");
+          void audio.play();
+        } catch {}
+      }
+
+      if (!enablePopup) return;
+
+      setToast(notification);
+
+      if (toastTimeout.current !== null) {
+        window.clearTimeout(toastTimeout.current);
+      }
+
+      toastTimeout.current = window.setTimeout(() => {
+        setToast((current) =>
+          current?.id === notification.id ? null : current
+        );
+      }, 4200);
+    },
+    [enablePopup, enableSound]
   );
 
   const load = useCallback(async () => {
@@ -81,7 +142,9 @@ export function useLiveNotifications({
       return;
     }
 
-    const incoming = ((data ?? []) as AppNotification[]) || [];
+    const incoming = (((data ?? []) as any[]) || [])
+      .map(normalizeNotificationRow)
+      .filter((row): row is AppNotification => row !== null);
     const newTop = incoming[0]?.id ?? null;
     const hasNewTop =
       previousTopId.current !== null &&
@@ -93,23 +156,11 @@ export function useLiveNotifications({
 
     if (hasNewTop) {
       const newest = incoming[0];
-      if (enableSound && canPlaySound()) {
-        try {
-          const audio = new Audio("/notification.mp3");
-          void audio.play();
-        } catch {}
-      }
-
-      if (enablePopup && newest) {
-        setToast(newest);
-        window.setTimeout(() => {
-          setToast((current) => (current?.id === newest.id ? null : current));
-        }, 4200);
-      }
+      if (newest) queueToast(newest);
     }
 
     previousTopId.current = newTop;
-  }, [userId, limit, enableSound, enablePopup]);
+  }, [userId, limit, queueToast]);
 
   const markRead = useCallback(async (id: string) => {
     setRows((prev) =>
@@ -160,6 +211,9 @@ export function useLiveNotifications({
     mounted.current = true;
     return () => {
       mounted.current = false;
+      if (toastTimeout.current !== null) {
+        window.clearTimeout(toastTimeout.current);
+      }
     };
   }, []);
 
@@ -180,7 +234,62 @@ export function useLiveNotifications({
           table: "notifications",
           filter: `recipient_id=eq.${userId}`,
         },
-        () => {
+        (payload) => {
+          if (!mounted.current) return;
+
+          if (payload.eventType === "INSERT") {
+            const incoming = normalizeNotificationRow(payload.new);
+            if (!incoming) {
+              void load();
+              return;
+            }
+
+            previousTopId.current = incoming.id;
+            setRows((prev) =>
+              sortAndLimitRows(
+                [incoming, ...prev.filter((row) => row.id !== incoming.id)],
+                limit
+              )
+            );
+            queueToast(incoming);
+            return;
+          }
+
+          if (payload.eventType === "UPDATE") {
+            const updated = normalizeNotificationRow(payload.new);
+            if (!updated) {
+              void load();
+              return;
+            }
+
+            setRows((prev) => {
+              const next = prev.some((row) => row.id === updated.id)
+                ? prev.map((row) => (row.id === updated.id ? updated : row))
+                : [updated, ...prev];
+
+              const normalized = sortAndLimitRows(next, limit);
+              previousTopId.current = normalized[0]?.id ?? null;
+              return normalized;
+            });
+            return;
+          }
+
+          if (payload.eventType === "DELETE") {
+            const deletedId = String(payload.old?.id ?? "");
+            if (!deletedId) {
+              void load();
+              return;
+            }
+
+            setRows((prev) => {
+              const next = prev.filter((row) => row.id !== deletedId);
+              previousTopId.current = next[0]?.id ?? null;
+              return next;
+            });
+            setToast((current) => (current?.id === deletedId ? null : current));
+            return;
+          }
+
           void load();
         }
       )
@@ -189,7 +298,7 @@ export function useLiveNotifications({
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [userId, load]);
+  }, [userId, load, limit, queueToast]);
 
   return {
     rows,

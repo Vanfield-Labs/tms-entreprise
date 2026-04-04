@@ -11,6 +11,7 @@ type MFAFactor = { id: string; status: string; factor_type: string; friendly_nam
 const ROLE_LABELS: Record<string, string> = {
   admin:                "Admin",
   corporate_approver:   "Corporate Approver",
+  finance_manager:      "Finance Manager",
   transport_supervisor: "Transport Supervisor",
   driver:               "Driver",
   unit_head:            "Unit Head",
@@ -20,6 +21,7 @@ const ROLE_LABELS: Record<string, string> = {
 const ROLE_COLORS: Record<string, string> = {
   admin:                "bg-rose-500",
   corporate_approver:   "bg-violet-500",
+  finance_manager:      "bg-emerald-500",
   transport_supervisor: "bg-amber-500",
   driver:               "bg-emerald-500",
   unit_head:            "bg-sky-500",
@@ -27,7 +29,7 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 // Roles that should see 2FA setup
-const MFA_ROLES = ["admin", "corporate_approver"];
+const MFA_ROLES = ["admin", "corporate_approver", "finance_manager"];
 
 export default function ProfilePage() {
   const { profile, user } = useAuth();

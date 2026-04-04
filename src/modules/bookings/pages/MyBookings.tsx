@@ -23,10 +23,11 @@ type Booking = {
   vehicle_plate: string | null;
   vehicle_make: string | null;
   vehicle_model: string | null;
+  needs_finance_approval?: boolean | null;
 };
 
 type Tab = "active" | "all";
-const ACTIVE_STATUSES = ["draft", "submitted", "approved", "dispatched"];
+const ACTIVE_STATUSES = ["draft", "finance_pending", "submitted", "approved", "dispatched"];
 
 export default function MyBookings() {
   const { user, loading: authLoading } = useAuth();
@@ -48,7 +49,7 @@ export default function MyBookings() {
       // 1. Fetch user's bookings
       const { data: bookingsRaw, error: bookingsErr } = await supabase
         .from("bookings")
-        .select("id,purpose,trip_date,trip_time,pickup_location,dropoff_location,status,created_at")
+        .select("id,purpose,trip_date,trip_time,pickup_location,dropoff_location,status,created_at,needs_finance_approval")
         .eq("created_by", user.id)
         .order("created_at", { ascending: false })
         .limit(200);
@@ -175,7 +176,12 @@ export default function MyBookings() {
   const submitBooking = async (id: string) => {
     setSubmitting(m => ({ ...m, [id]: true }));
     try {
-      await supabase.rpc("submit_booking", { p_booking_id: id });
+      const booking = rows.find((row) => row.id === id);
+      if (booking?.needs_finance_approval) {
+        await supabase.from("bookings").update({ status: "finance_pending" }).eq("id", id);
+      } else {
+        await supabase.rpc("submit_booking", { p_booking_id: id });
+      }
       await load();
     } finally {
       setSubmitting(m => ({ ...m, [id]: false }));

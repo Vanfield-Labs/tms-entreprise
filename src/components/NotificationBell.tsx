@@ -1,7 +1,6 @@
 // src/components/NotificationBell.tsx
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useAuth } from "@/hooks/useAuth";
 import {
   useLiveNotifications,
   timeAgo,
@@ -80,8 +79,11 @@ function NotificationToast({
   );
 }
 
-export function NotificationBell() {
-  const { user } = useAuth();
+type NotificationBellProps = {
+  currentUserId?: string | null;
+};
+
+export function NotificationBell({ currentUserId }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -100,7 +102,7 @@ export function NotificationBell() {
     clearAll,
     load,
   } = useLiveNotifications({
-    userId: user?.id,
+    userId: currentUserId,
     enablePopup: true,
     enableSound: true,
   });

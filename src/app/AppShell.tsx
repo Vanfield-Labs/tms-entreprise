@@ -3,6 +3,7 @@ import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/context/ThemeContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { NotificationBell as SharedNotificationBell } from "@/components/NotificationBell";
 import { PushNotificationSetup } from "@/components/PushNotificationSetup";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -39,6 +40,7 @@ function isElementItem(item: NavItem): item is ElementNavItem {
 const ROLE_LABELS: Record<string, string> = {
   admin: "Administrator",
   corporate_approver: "Corporate Approver",
+  finance_manager: "Finance Manager",
   transport_supervisor: "Transport Supervisor",
   driver: "Driver",
   unit_head: "Unit Head",
@@ -48,6 +50,7 @@ const ROLE_LABELS: Record<string, string> = {
 const ROLE_COLORS: Record<string, string> = {
   admin: "bg-[color:var(--purple)]",
   corporate_approver: "bg-[color:var(--accent)]",
+  finance_manager: "bg-[color:var(--green)]",
   transport_supervisor: "bg-[color:var(--green)]",
   driver: "bg-[color:var(--cyan)]",
   unit_head: "bg-[color:var(--amber)]",
@@ -646,6 +649,11 @@ const handleSignOut = async () => {
         promises.push(qCount("Maintenance Approvals", "maintenance_requests", { status: "reported" }));
       }
 
+      if (role === "finance_manager") {
+        promises.push(qCount("Finance Bookings", "bookings", { status: "finance_pending" }));
+        promises.push(qCount("Finance Maintenance", "maintenance_requests", { status: "finance_pending" }));
+      }
+
       if (role === "transport_supervisor" || role === "admin") {
         promises.push(qCount("Dispatch", "bookings", { status: "approved" }));
         promises.push(qCount("Record Fuel", "fuel_requests", { status: "approved" }));
@@ -772,7 +780,7 @@ const handleSignOut = async () => {
         <div className="flex items-center gap-1.5 shrink-0">
           <ThemeToggle />
           {currentUserId && (
-            <NotificationBell currentUserId={currentUserId} onNavigate={navigateByEntity} />
+            <SharedNotificationBell currentUserId={currentUserId} />
           )}
           {profile && (
             <button
@@ -994,7 +1002,7 @@ const handleSignOut = async () => {
             <div className="flex items-center gap-2.5">
               <ThemeToggle />
               {currentUserId && (
-                <NotificationBell currentUserId={currentUserId} onNavigate={navigateByEntity} />
+                <SharedNotificationBell currentUserId={currentUserId} />
               )}
               {profile && (
                 <button

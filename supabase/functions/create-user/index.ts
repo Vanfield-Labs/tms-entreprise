@@ -102,6 +102,7 @@ Deno.serve(async (req) => {
       "driver",
       "transport_supervisor",
       "corporate_approver",
+      "finance_manager",
       "admin",
     ]);
 

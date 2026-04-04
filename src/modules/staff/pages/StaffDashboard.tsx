@@ -82,7 +82,7 @@ export default function StaffDashboard() {
     const { data: bookData } = await supabase.from("bookings")
       .select("id,purpose,trip_date,trip_time,status,pickup_location,dropoff_location")
       .eq("created_by", user.id)
-      .in("status", ["submitted","approved","dispatched","in_progress"])
+      .in("status", ["finance_pending","submitted","approved","dispatched","in_progress"])
       .order("trip_date").limit(10);
 
     // Get dispatch info for each booking

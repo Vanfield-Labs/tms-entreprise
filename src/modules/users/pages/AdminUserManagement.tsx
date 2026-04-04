@@ -30,12 +30,14 @@ const ROLES = [
   { value: "driver",               label: "Driver" },
   { value: "transport_supervisor", label: "Transport Supervisor" },
   { value: "corporate_approver",   label: "Corporate Approver" },
+  { value: "finance_manager",      label: "Finance Manager" },
   { value: "admin",                label: "Admin" },
 ];
 
 const ROLE_COLORS: Record<string, string> = {
   admin:                "badge badge-role-admin",
   corporate_approver:   "badge badge-role-corporate",
+  finance_manager:      "badge badge-role-corporate",
   transport_supervisor: "badge badge-role-transport",
   driver:               "badge badge-role-driver",
   unit_head:            "badge badge-role-unit",
