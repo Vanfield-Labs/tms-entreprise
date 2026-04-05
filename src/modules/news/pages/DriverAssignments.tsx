@@ -100,7 +100,7 @@ export default function DriverAssignments() {
     past: assignments.filter((a) => a.assignment_date < today).length,
   };
 
-  if (loading) return <PageSpinner />;
+  if (loading) return <PageSpinner variant="cards" count={4} />;
 
   return (
     <div className="space-y-4">

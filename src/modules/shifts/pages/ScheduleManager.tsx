@@ -4,6 +4,7 @@
 //  2. Period toggle: single day vs date range
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { PageSpinner } from "@/components/TmsUI";
 
 type CalRow = {
   driver_id: string; driver_name: string; license_number: string;
@@ -384,7 +385,7 @@ export default function ScheduleManager() {
       </div>
 
       {loading?(
-        <div style={{display:"flex",justifyContent:"center",padding:56}}><div className="spinner"/></div>
+        <PageSpinner variant="table" rows={7} cols={7} />
       ):allDrivers.length===0?(
         <div style={{textAlign:"center",padding:56,color:"var(--text-muted)",fontSize:14,background:"var(--surface)",borderRadius:16,border:"1px solid var(--border)"}}>
           <div style={{fontSize:32,marginBottom:12}}>📅</div>No schedule data for this week.<br/><span style={{color:"var(--text-dim)",fontSize:13}}>Click <strong style={{color:"var(--text)"}}>Generate Schedule</strong> to create one.</span>

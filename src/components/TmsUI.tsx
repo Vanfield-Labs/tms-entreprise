@@ -4,6 +4,9 @@
 // and are mobile-first. Import from here instead of writing inline classes.
 
 import { ReactNode, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import CardListSkeleton from "@/components/skeletons/CardListSkeleton";
+import TableSkeleton from "@/components/skeletons/TableSkeleton";
+import DashboardSkeleton from "@/components/skeletons/DashboardSkeleton";
 
 // ─── Spinner ──────────────────────────────────────────────────────────────────
 export function Spinner({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
@@ -13,7 +16,59 @@ export function Spinner({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
   );
 }
 
-export function PageSpinner() {
+type PageSpinnerVariant = "spinner" | "cards" | "table" | "dashboard";
+
+export function PageSpinner({
+  variant = "spinner",
+  count = 4,
+  rows = 6,
+  cols = 5,
+}: {
+  variant?: PageSpinnerVariant;
+  count?: number;
+  rows?: number;
+  cols?: number;
+}) {
+  if (variant === "cards") {
+    return (
+      <div className="space-y-4">
+        <div className="page-header animate-pulse">
+          <div>
+            <div className="h-6 w-40 rounded bg-[color:var(--surface-2)]" />
+            <div className="mt-2 h-3 w-56 rounded bg-[color:var(--surface-2)]" />
+          </div>
+        </div>
+        <div className="flex items-center gap-2 animate-pulse">
+          <div className="h-5 w-5 rounded-full bg-[color:var(--surface-2)]" />
+          <div className="h-3 w-28 rounded bg-[color:var(--surface-2)]" />
+        </div>
+        <CardListSkeleton count={count} />
+      </div>
+    );
+  }
+
+  if (variant === "table") {
+    return (
+      <div className="space-y-4">
+        <div className="page-header animate-pulse">
+          <div>
+            <div className="h-6 w-40 rounded bg-[color:var(--surface-2)]" />
+            <div className="mt-2 h-3 w-56 rounded bg-[color:var(--surface-2)]" />
+          </div>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2 animate-pulse">
+          <div className="h-10 w-full sm:w-64 rounded-xl bg-[color:var(--surface-2)]" />
+          <div className="h-10 w-full sm:w-40 rounded-xl bg-[color:var(--surface-2)]" />
+        </div>
+        <TableSkeleton rows={rows} cols={cols} />
+      </div>
+    );
+  }
+
+  if (variant === "dashboard") {
+    return <DashboardSkeleton />;
+  }
+
   return (
     <div className="flex items-center justify-center py-20">
       <Spinner size="lg" />

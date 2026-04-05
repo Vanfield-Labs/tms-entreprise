@@ -23,6 +23,9 @@ export async function createSystemUser(payload: CreateUserPayload): Promise<{ us
 
   const res = await supabase.functions.invoke("create-user", {
     body: payload,
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+    },
   });
 
   if (res.error) throw new Error(res.error.message);

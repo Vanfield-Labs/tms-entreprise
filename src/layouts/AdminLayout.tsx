@@ -5,6 +5,7 @@ import AuditLogs from "../modules/reports/pages/AuditLogs";
 import BookingsTable from "@/modules/bookings/pages/BookingsTable";
 import VehicleManagement from "@/modules/vehicles/pages/VehicleManagement";
 import DriverManagement from "@/modules/drivers/pages/DriverManagement";
+import DriverLeaveDashboard from "@/modules/drivers/pages/DriverLeaveDashboard";
 import DivisionManagement from "@/modules/divisions/pages/DivisionManagement";
 import MaintenanceHistory from "@/modules/maintenance/pages/MaintenanceHistory";
 import AdminUserManagement from "@/modules/users/pages/AdminUserManagement";
@@ -27,6 +28,7 @@ export default function AdminLayout() {
   { label: "All Bookings", element: <LicenceGate feature="bookings"><BookingsTable /></LicenceGate> },
   { label: "Maintenance History", element: <LicenceGate feature="maintenance"><MaintenanceHistory /></LicenceGate> },
   { label: "Fuel Mileage Log", element: <LicenceGate feature="fuel"><FuelMileageLog /></LicenceGate> },
+  { label: "Leave", element: <LicenceGate feature="fleet"><DriverLeaveDashboard /></LicenceGate> },
 
   // ── Fleet ────────────────────
   { label: "Vehicles", element: <LicenceGate feature="fleet"><VehicleManagement /></LicenceGate> },

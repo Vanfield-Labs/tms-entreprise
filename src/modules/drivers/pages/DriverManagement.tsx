@@ -4,13 +4,14 @@
 //  - Transport supervisor cannot edit: employment_date, user_id (hidden in form)
 //  - Pagination (10 rows per page)
 //  - Leave requests tab added
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase";
 import { PageSpinner, EmptyState, Badge, Card, SearchInput, Field, Input, Select, Btn, Modal, TabBar } from "@/components/TmsUI";
 import { fmtDate } from "@/lib/utils";
 import { usePagination, PaginationBar } from "@/hooks/usePagination";
 import { useAuth } from "@/hooks/useAuth";
+import { HR_UNIT_ID, LEAVE_STATUS_LABELS, LEAVE_TYPE_OPTIONS } from "../lib/leave";
 
 type Driver = {
   id: string; full_name: string | null; license_number: string; license_expiry: string | null;
@@ -34,7 +35,6 @@ const EMPTY: FormData = { user_id:"",license_number:"",license_class:"B",license
 const EMP_STATUSES = ["all","active","inactive","suspended","on_leave"];
 const LICENSE_CLASSES = ["A","B","C","D","B+C","B+C+D","Commercial"];
 const TEAM_ROLES = [{ value:"leader",label:"Group Leader"},{ value:"assistant",label:"Assistant"},{ value:"member",label:"Team Member"}];
-const LEAVE_TYPES = ["annual","sick","emergency","other"];
 
 function daysLeft(expiry:string|null):number|null{
   if(!expiry) return null;
@@ -67,24 +67,44 @@ function ExpiryBanner({variant,drivers}:{variant:"expired"|"expiring";drivers:Dr
 
 // ctx menu
 type CtxItem = {label:string;icon:string;cls?:string;onClick:()=>void};
-type MenuState = {top:number;left:number}|null;
+type MenuState = {top:number;left:number;anchorTop:number;anchorBottom:number}|null;
 function CtxMenu({items}:{items:CtxItem[]}){
   const [menu,setMenu]=useState<MenuState>(null);
   const triggerRef=useRef<HTMLButtonElement>(null);
   const menuRef=useRef<HTMLDivElement>(null);
+  useLayoutEffect(()=>{
+    if(!menu||!menuRef.current) return;
+    const menuHeight=menuRef.current.offsetHeight;
+    const nextTop=menu.anchorBottom+6+menuHeight<=window.innerHeight-8
+      ? menu.anchorBottom+6
+      : Math.max(8,menu.anchorTop-menuHeight-6);
+    if(nextTop!==menu.top){
+      setMenu(prev=>prev?{...prev,top:nextTop}:prev);
+    }
+  },[menu]);
   useEffect(()=>{
     if(!menu) return;
     const close=(e:MouseEvent)=>{if(menuRef.current?.contains(e.target as Node)||triggerRef.current?.contains(e.target as Node)) return;setMenu(null);};
+    const closeOnResize=()=>setMenu(null);
     document.addEventListener("mousedown",close,true);
     window.addEventListener("scroll",()=>setMenu(null),{capture:true,once:true});
-    return()=>document.removeEventListener("mousedown",close,true);
+    window.addEventListener("resize",closeOnResize);
+    return()=>{
+      document.removeEventListener("mousedown",close,true);
+      window.removeEventListener("resize",closeOnResize);
+    };
   },[menu]);
   const toggle=()=>{
     if(menu){setMenu(null);return;}
     const rect=triggerRef.current?.getBoundingClientRect();
     if(!rect) return;
     const W=196;
-    setMenu({top:rect.bottom+6,left:Math.min(Math.max(8,rect.right-W),window.innerWidth-W-8)});
+    setMenu({
+      top:rect.bottom+6,
+      left:Math.min(Math.max(8,rect.right-W),window.innerWidth-W-8),
+      anchorTop:rect.top,
+      anchorBottom:rect.bottom,
+    });
   };
   return (
     <>
@@ -93,7 +113,7 @@ function CtxMenu({items}:{items:CtxItem[]}){
         onMouseEnter={e=>{(e.currentTarget as HTMLButtonElement).style.background="var(--surface-2)"}}
         onMouseLeave={e=>{(e.currentTarget as HTMLButtonElement).style.background="transparent"}}>•••</button>
       {menu&&createPortal(
-        <div ref={menuRef} role="menu" style={{position:"fixed",top:menu.top,left:menu.left,width:196,zIndex:2147483647,background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",padding:"4px 0",boxShadow:"0 4px 6px -1px rgba(0,0,0,0.10), 0 16px 40px -4px rgba(0,0,0,0.18)",transform:"translateZ(0)"}}>
+        <div ref={menuRef} role="menu" style={{position:"fixed",top:menu.top,left:menu.left,width:196,maxHeight:"calc(100vh - 16px)",overflowY:"auto",zIndex:2147483647,background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"4px 0",boxShadow:"0 4px 6px -1px rgba(0,0,0,0.10), 0 16px 40px -4px rgba(0,0,0,0.18)",transform:"translateZ(0)"}}>
           {items.map((item,i)=>{
             const fg=item.cls==="danger"?"var(--red)":item.cls==="warning"?"var(--amber)":item.cls==="success"?"var(--green)":"var(--text)";
             const hoverBg=item.cls==="danger"?"rgba(220,38,38,0.09)":item.cls==="warning"?"rgba(217,119,6,0.09)":item.cls==="success"?"rgba(22,163,74,0.09)":"var(--surface-2)";
@@ -120,11 +140,6 @@ function ConfirmDialog({open,title,message,confirmLabel="Confirm",variant="dange
     </div>
   );
 }
-
-const LEAVE_STATUS_LABEL: Record<string,string> = {
-  pending_supervisor:"Awaiting Supervisor", pending_corporate:"Awaiting Corporate",
-  pending_hr:"Awaiting HR", approved:"Approved", rejected:"Rejected",
-};
 
 export default function DriverManagement() {
   const { profile } = useAuth();
@@ -304,18 +319,16 @@ export default function DriverManagement() {
   });
   const pg=usePagination(filtered);
 
-  if(loading) return <PageSpinner/>;
+  if(loading) return <PageSpinner variant="table" rows={8} cols={11} />;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="page-title">Drivers</h1>
           <p className="text-xs mt-0.5" style={{color:"var(--text-muted)"}}>{drivers.length} total drivers</p>
         </div>
-        <div className="flex gap-2">
-          <Btn variant="primary" onClick={openAdd}>+ Add Driver</Btn>
-        </div>
+        <Btn variant="primary" className="w-full sm:w-auto sm:self-start" onClick={openAdd}>+ Add Driver</Btn>
       </div>
 
       {/* Page tabs */}
@@ -427,7 +440,7 @@ export default function DriverManagement() {
 
       {pageTab==="leave"&&(
         <div className="space-y-3">
-          {leavesLoading?<PageSpinner/>:leaves.length===0?(
+          {leavesLoading?<PageSpinner variant="table" rows={6} cols={7}/>:leaves.length===0?(
             <EmptyState title="No leave requests" subtitle="Driver leave requests will appear here"/>
           ):(
             <div className="card overflow-hidden">
@@ -442,7 +455,7 @@ export default function DriverManagement() {
                         <td className="whitespace-nowrap text-xs">{fmtDate(l.start_date)}</td>
                         <td className="whitespace-nowrap text-xs">{fmtDate(l.end_date)}</td>
                         <td>{l.working_days}</td>
-                        <td><span className="badge badge-submitted text-xs">{LEAVE_STATUS_LABEL[l.status]??l.status}</span></td>
+                        <td><span className="badge badge-submitted text-xs">{LEAVE_STATUS_LABELS[l.status]??l.status}</span></td>
                         <td>
                           <div className="flex gap-2">
                             {l.status==="pending_supervisor"&&(isSupervisor||isAdmin)&&(
@@ -457,7 +470,7 @@ export default function DriverManagement() {
                                 <Btn size="sm" variant="danger"  loading={actingLeave===l.id} onClick={()=>actLeave(l.id,"rejected","corporate")}>Reject</Btn>
                               </>
                             )}
-                            {l.status==="pending_hr"&&(profile?.system_role==="unit_head"||isAdmin)&&(
+                            {l.status==="pending_hr"&&((profile?.unit_id===HR_UNIT_ID&&["unit_head","staff"].includes(profile?.system_role ?? ""))||isAdmin)&&(
                               <>
                                 <Btn size="sm" variant="success" loading={actingLeave===l.id} onClick={()=>actLeave(l.id,"approved","hr")}>Finalise</Btn>
                                 <Btn size="sm" variant="danger"  loading={actingLeave===l.id} onClick={()=>actLeave(l.id,"rejected","hr")}>Reject</Btn>
@@ -534,7 +547,7 @@ export default function DriverManagement() {
         <div className="space-y-4">
           <Field label="Leave Type">
             <Select value={leaveType} onChange={e=>setLeaveType(e.target.value)}>
-              {LEAVE_TYPES.map(t=><option key={t} value={t}>{t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
+              {LEAVE_TYPE_OPTIONS.map((type)=><option key={type.value} value={type.value}>{type.label}</option>)}
             </Select>
           </Field>
           <div className="grid grid-cols-2 gap-3">

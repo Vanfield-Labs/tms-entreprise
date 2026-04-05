@@ -234,7 +234,7 @@ export default function MyBookings() {
     { value: "all",    label: "All"    },
   ];
 
-  if (authLoading || loading) return <PageSpinner />;
+  if (authLoading || loading) return <PageSpinner variant="dashboard" />;
 
   if (selectedBookingId) {
     return (

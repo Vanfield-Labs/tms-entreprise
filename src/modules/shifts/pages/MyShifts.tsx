@@ -133,7 +133,7 @@ export default function MyShifts() {
 
   const todayEntry = schedule[today];
 
-  if (loading) return <PageSpinner />;
+  if (loading) return <PageSpinner variant="dashboard" />;
 
   return (
     <div className="space-y-4">

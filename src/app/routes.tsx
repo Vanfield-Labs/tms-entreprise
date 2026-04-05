@@ -12,6 +12,7 @@ import FinanceLayout from "@/layouts/FinanceLayout";
 import TransportLayout from "@/layouts/TransportLayout";
 import DriverLayout from "@/layouts/DriverLayout";
 import DepartmentLayout from "@/layouts/DepartmentLayout";
+import HrLayout from "@/layouts/HrLayout";
 
 // Unit/department layouts
 import CameraLayout from "@/layouts/CameraLayout";
@@ -37,6 +38,7 @@ export const routes: RouteObject[] = [
       { path: "/dashboard/finance", element: <FinanceLayout /> },
       { path: "/dashboard/transport", element: <TransportLayout /> },
       { path: "/dashboard/driver", element: <DriverLayout /> },
+      { path: "/dashboard/hr", element: <HrLayout /> },
       { path: "/dashboard/department", element: <DepartmentLayout /> },
       { path: "/dashboard/camera", element: <CameraLayout /> },
       { path: "/dashboard/joynews", element: <JoyNewsLayout /> },

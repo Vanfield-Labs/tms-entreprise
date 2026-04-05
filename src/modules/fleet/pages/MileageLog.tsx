@@ -1,7 +1,7 @@
 // src/modules/fleet/pages/MileageLog.tsx
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { PageSpinner, EmptyState, Card, SearchInput, Badge } from "@/components/TmsUI";
+import { PageSpinner, EmptyState, Card, SearchInput } from "@/components/TmsUI";
 import { fmtDate } from "@/lib/utils";
 
 type Vehicle = {
@@ -57,7 +57,7 @@ export default function MileageLog() {
 
   const sourceLabel: Record<string, string> = { fuel_record: "⛽ Fuel Record", initial: "🚗 Initial", manual: "✏️ Manual" };
 
-  if (loading) return <PageSpinner />;
+  if (loading) return <PageSpinner variant="dashboard" />;
 
   return (
     <div className="space-y-4">

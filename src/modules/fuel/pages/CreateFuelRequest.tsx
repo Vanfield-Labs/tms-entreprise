@@ -160,9 +160,11 @@ export default function CreateFuelRequest() {
 
   return (
     <>
-      <button className="btn btn-primary" onClick={openModal}>
-        + New Fuel Request
-      </button>
+      <div className="flex w-full justify-stretch sm:justify-start">
+        <Btn variant="primary" className="w-full sm:w-auto sm:self-start" onClick={openModal}>
+          + New Fuel Request
+        </Btn>
+      </div>
 
       {open && (
         <div

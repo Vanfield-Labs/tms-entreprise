@@ -586,7 +586,7 @@ export default function KPIDashboard() {
     { label: "This Month Bookings", value: thisMonthBookings },
   ];
 
-  if (loading) return <PageSpinner />;
+  if (loading) return <PageSpinner variant="dashboard" />;
 
   const noData =
     bookings.length === 0 &&

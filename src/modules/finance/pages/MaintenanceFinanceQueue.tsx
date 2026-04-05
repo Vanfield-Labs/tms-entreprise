@@ -181,7 +181,7 @@ export default function MaintenanceFinanceQueue() {
     }
   };
 
-  if (loading) return <PageSpinner />;
+  if (loading) return <PageSpinner variant="cards" count={3} />;
 
   return (
     <div className="space-y-4">

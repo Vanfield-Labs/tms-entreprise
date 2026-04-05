@@ -245,7 +245,7 @@ export default function FuelMileageLog() {
 
       {/* Content */}
       {loading ? (
-        <PageSpinner />
+        <PageSpinner variant="table" rows={6} cols={6} />
       ) : filtered.length === 0 ? (
         <div className="card">
           <div className="empty-state">

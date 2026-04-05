@@ -1,4 +1,3 @@
-// src/layouts/DriverLayout.tsx
 import AppShell from "../app/AppShell";
 import DriverTrips from "../modules/trips/pages/DriverTrips";
 import MyShifts from "../modules/shifts/pages/MyShifts";
@@ -7,6 +6,7 @@ import MyFuelRequests from "../modules/fuel/pages/MyFuelRequests";
 import IncidentReportForm from "../modules/incidents/pages/IncidentReportForm";
 import MyIncidentReports from "../modules/incidents/pages/MyIncidentReports";
 import DriverAssignments from "@/modules/news/pages/DriverAssignments";
+import DriverLeavePage from "@/modules/drivers/pages/DriverLeavePage";
 import ProfilePage from "@/pages/profile/ProfilePage";
 
 export default function DriverLayout() {
@@ -14,36 +14,30 @@ export default function DriverLayout() {
     <AppShell
       title="Driver"
       navItems={[
-  // ── Work ────────────────────
-  { label: "My Trips", element: <DriverTrips /> },
-  { label: "My Shifts", element: <MyShifts /> },
-  { label: "Assignments", element: <DriverAssignments /> },
-
-  // ── Fuel ────────────────────
-  {
-    label: "Fuel Request",
-    element: (
-      <div className="space-y-6">
-        <CreateFuelRequest />
-        <MyFuelRequests />
-      </div>
-    ),
-  },
-
-  // ── Incidents ───────────────
-  {
-    label: "Incidents",
-    element: (
-      <div className="space-y-6">
-        <IncidentReportForm />
-        <MyIncidentReports />
-      </div>
-    ),
-  },
-
-  // ── Account ────────────────
-  { label: "Profile", element: <ProfilePage /> },
-]}
+        { label: "My Trips", element: <DriverTrips /> },
+        { label: "My Shifts", element: <MyShifts /> },
+        { label: "Assignments", element: <DriverAssignments /> },
+        {
+          label: "Fuel Request",
+          element: (
+            <div className="space-y-6">
+              <CreateFuelRequest />
+              <MyFuelRequests />
+            </div>
+          ),
+        },
+        {
+          label: "Incidents",
+          element: (
+            <div className="space-y-6">
+              <IncidentReportForm />
+              <MyIncidentReports />
+            </div>
+          ),
+        },
+        { label: "Leave", element: <DriverLeavePage /> },
+        { label: "Profile", element: <ProfilePage /> },
+      ]}
     />
   );
 }

@@ -208,7 +208,7 @@ export default function MaintenanceBoard() {
     completed: requests.filter((r) => ["completed", "closed"].includes(r.status)).length,
   };
 
-  if (loading) return <PageSpinner />;
+  if (loading) return <PageSpinner variant="cards" count={4} />;
 
   return (
     <div className="space-y-4">

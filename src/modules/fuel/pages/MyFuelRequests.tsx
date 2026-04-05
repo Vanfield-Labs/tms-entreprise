@@ -86,7 +86,7 @@ export default function MyFuelRequests() {
     return matchStatus && matchQ;
   });
 
-  if (loading) return <PageSpinner />;
+  if (loading) return <PageSpinner variant="table" rows={6} cols={6} />;
 
   return (
     <div className="space-y-4">

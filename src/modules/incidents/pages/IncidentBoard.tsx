@@ -115,7 +115,7 @@ export default function IncidentBoard() {
     { value: "resolved",     label: "Resolved"     },
   ];
 
-  if (loading) return <PageSpinner />;
+  if (loading) return <PageSpinner variant="cards" count={4} />;
 
   return (
     <div className="space-y-4">

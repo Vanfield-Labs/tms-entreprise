@@ -521,7 +521,7 @@ export default function NewsUnitDashboard({
 
   const counts = { assignments: activeAsg.length, delegates: delegates.length };
 
-  if (loading) return <PageSpinner />;
+  if (loading) return <PageSpinner variant="cards" count={4} />;
 
   return (
     <div className="space-y-4">

@@ -170,7 +170,7 @@ export default function StaffDashboard() {
 
   useEffect(() => { load(); }, [load]);
 
-  if (loading) return <PageSpinner />;
+  if (loading) return <PageSpinner variant="dashboard" />;
 
   const todayStr = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
 

@@ -209,7 +209,7 @@ export default function ShiftAdmin() {
         </div>
 
         {loading ? (
-          <PageSpinner />
+          <PageSpinner variant="table" rows={6} cols={4} />
         ) : filtered.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon">📅</div>

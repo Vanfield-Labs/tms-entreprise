@@ -14,6 +14,7 @@ const CAMERA_UNIT_ID = "252e08c0-0999-4afe-9eff-a15365bd4d47";
 const JOY_NEWS_UNIT_ID = "f34cb9c1-334a-4503-9e39-06980e6f4d74";
 const ADOM_NEWS_UNIT_ID = "61ef9897-c284-43fe-a60d-7a22fa4e1a11";
 const JOY_BUSINESS_UNIT_ID = "0dc91872-e758-4392-9ef5-34e6434188e1";
+const HR_UNIT_ID = "f14262ab-7490-4958-94a9-dea5b11bf0c5";
 
 const ROLE_HOME: Record<string, string> = {
   admin: "/dashboard/admin",
@@ -25,6 +26,8 @@ const ROLE_HOME: Record<string, string> = {
 
 function getDepartmentHome(unitId: string | null): string {
   switch (unitId) {
+    case HR_UNIT_ID:
+      return "/dashboard/hr";
     case CAMERA_UNIT_ID:
       return "/dashboard/camera";
     case JOY_NEWS_UNIT_ID:
@@ -105,6 +108,7 @@ export default function ProtectedLayout() {
       "/dashboard/finance",
       "/dashboard/transport",
       "/dashboard/driver",
+      "/dashboard/hr",
       "/dashboard/department",
       "/dashboard/camera",
       "/dashboard/joynews",

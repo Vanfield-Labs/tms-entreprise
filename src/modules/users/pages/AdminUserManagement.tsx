@@ -1,11 +1,12 @@
-// src/modules/users/pages/AdminUserManagement.tsx
-// Original UI preserved: context menu (⋮) with Edit / Deactivate / Reset Password on each user row.
+﻿// src/modules/users/pages/AdminUserManagement.tsx
+// Original UI preserved: context menu (...) with Edit / Deactivate / Reset Password on each user row.
 // Bug fixes only: correct import path, profile_status "disabled" (not "inactive").
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { createSystemUser, rejectUserRequest, listProfiles, setUserStatus } from "../services/userManagement.service";
 import { fmtDateTime } from "@/lib/utils";
+import { createPortal } from "react-dom";
 
 type Tab = "requests" | "create" | "users";
 
@@ -50,196 +51,240 @@ function generatePassword(length = 12): string {
     .map(b => charset[b % charset.length]).join("");
 }
 
-// ─── Context Menu ─────────────────────────────────────────────────────────────
+// Context Menu
 function ContextMenu({ profile, onEdit, onToggle, onResetPwd, toggling }: {
   profile: Profile;
-  onEdit:     (p: Profile) => void;
-  onToggle:   (p: Profile) => void;
+  onEdit: (p: Profile) => void;
+  onToggle: (p: Profile) => void;
   onResetPwd: (p: Profile) => void;
-  toggling:   boolean;
+  toggling: boolean;
 }) {
- const [open, setOpen] = useState(false);
-const [isMobileMenu, setIsMobileMenu] = useState(false);
-const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
-const ref = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [menu, setMenu] = useState<{ top: number; left: number; anchorTop: number; anchorBottom: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, []);
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (menuRef.current?.contains(e.target as Node) || triggerRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+      setMenu(null);
+    };
+    const closeOnResize = () => {
+      setOpen(false);
+      setMenu(null);
+    };
+    const closeOnScroll = () => {
+      setOpen(false);
+      setMenu(null);
+    };
+    document.addEventListener("mousedown", close, true);
+    window.addEventListener("resize", closeOnResize);
+    window.addEventListener("scroll", closeOnScroll, { capture: true, once: true });
+    return () => {
+      document.removeEventListener("mousedown", close, true);
+      window.removeEventListener("resize", closeOnResize);
+      window.removeEventListener("scroll", closeOnScroll, true);
+    };
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open || !menu || !menuRef.current) return;
+    const menuHeight = menuRef.current.offsetHeight;
+    const nextTop =
+      menu.anchorBottom + 6 + menuHeight <= window.innerHeight - 8
+        ? menu.anchorBottom + 6
+        : Math.max(8, menu.anchorTop - menuHeight - 6);
+    if (nextTop !== menu.top) {
+      setMenu((current) => (current ? { ...current, top: nextTop } : current));
+    }
+  }, [open, menu]);
+
+  const items = [
+    { label: "Edit", onClick: () => onEdit(profile), color: "var(--text)" },
+    {
+      label: profile.status === "active" ? "Deactivate" : "Activate",
+      onClick: () => onToggle(profile),
+      color: profile.status === "active" ? "var(--red)" : "var(--green)",
+      disabled: toggling,
+    },
+    { label: "Reset Password", onClick: () => onResetPwd(profile), color: "var(--text)" },
+  ];
 
   return (
-    <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
+    <div style={{ position: "relative", display: "inline-block" }}>
       <button
-onClick={(e) => {
-  const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-  const mobile = window.innerWidth < 640;
+        ref={triggerRef}
+        onClick={(e) => {
+          if (open) {
+            setOpen(false);
+            setMenu(null);
+            return;
+          }
+          const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+          const menuWidth = 196;
+          setMenu({
+            top: rect.bottom + 6,
+            left: Math.min(Math.max(8, rect.right - menuWidth), window.innerWidth - menuWidth - 8),
+            anchorTop: rect.top,
+            anchorBottom: rect.bottom,
+          });
+          setOpen(true);
+        }}
+        aria-label="More actions"
+        title="Options"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 32,
+          height: 32,
+          padding: 0,
+          background: "transparent",
+          border: "1px solid var(--border)",
+          borderRadius: 8,
+          cursor: "pointer",
+          color: "var(--text-muted)",
+          fontSize: 16,
+          letterSpacing: 2,
+          flexShrink: 0,
+        }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--surface-2)"; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+      >
+        ...
+      </button>
 
-  setIsMobileMenu(mobile);
+      {open && menu && createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          style={{
+            position: "fixed",
+            top: menu.top,
+            left: menu.left,
+            width: 196,
+            maxHeight: "calc(100vh - 16px)",
+            overflowY: "auto",
+            zIndex: 2147483647,
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: 12,
+            padding: "4px 0",
+            boxShadow: "0 4px 6px -1px rgba(0,0,0,0.10), 0 16px 40px -4px rgba(0,0,0,0.18)",
+            transform: "translateZ(0)",
+          }}
+        >
+          {items.map((item, i) => {
+            const hoverBg =
+              item.color === "var(--red)"
+                ? "rgba(220,38,38,0.09)"
+                : item.color === "var(--green)"
+                ? "rgba(22,163,74,0.09)"
+                : "var(--surface-2)";
 
-  if (!mobile) {
-    const menuWidth = 170;
-    let left = rect.left;
-
-    if (left + menuWidth > window.innerWidth) {
-      left = window.innerWidth - menuWidth - 8;
-    }
-
-    if (left < 8) {
-      left = 8;
-    }
-
-    setMenuPos({
-      top: rect.bottom + 6,
-      left,
-    });
-  }
-
-  setOpen(v => !v);
-}}
-  style={{
-    background: "none",
-    border: "none",
-    cursor: "pointer",
-    padding: "4px 8px",
-    borderRadius: 6,
-    color: "var(--text-muted)",
-    fontSize: 20,
-    lineHeight: 1,
-  }}
-  title="Options"
->
-  ⋮
-</button>
-
-       {open && (
-  <div
-    style={{
-      position: isMobileMenu ? "absolute" : "fixed",
-      top: isMobileMenu ? "calc(100% + 6px)" : menuPos.top,
-      right: isMobileMenu ? 0 : "auto",
-      left: isMobileMenu ? "auto" : menuPos.left,
-      zIndex: 9999,
-      background: "var(--surface)",
-      border: "1px solid var(--border)",
-      borderRadius: 10,
-      boxShadow: "0 10px 30px rgba(0,0,0,.18)",
-      minWidth: 170,
-      overflow: "hidden",
-    }}
-
-          >
-          {[
-            { label: "✏️  Edit",                onClick: () => { setOpen(false); onEdit(profile); },     color: "var(--text)" },
-            {
-              label:   profile.status === "active" ? "🔴  Deactivate" : "🟢  Activate",
-              onClick: () => { setOpen(false); onToggle(profile); },
-              color:   profile.status === "active" ? "var(--red)"   : "var(--green)",
-              disabled: toggling,
-            },
-            { label: "🔑  Reset Password",       onClick: () => { setOpen(false); onResetPwd(profile); }, color: "var(--text)" },
-          ].map((item, i) => (
-            <button
-              key={i}
-              onClick={item.onClick}
-              disabled={item.disabled}
-              style={{
-                display: "block", width: "100%", textAlign: "left",
-                padding: "10px 14px", background: "none", border: "none",
-                cursor: item.disabled ? "default" : "pointer",
-                fontSize: 13, color: item.color,
-                borderBottom: i < 2 ? "1px solid var(--border)" : "none",
-                opacity: item.disabled ? 0.4 : 1,
-              }}
-            >{item.label}</button>
-          ))}
-        </div>
+            return (
+              <button
+                key={i}
+                role="menuitem"
+                disabled={item.disabled}
+                onClick={() => {
+                  setOpen(false);
+                  setMenu(null);
+                  item.onClick();
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  width: "100%",
+                  padding: "10px 16px",
+                  minHeight: 44,
+                  background: "transparent",
+                  border: "none",
+                  color: item.color,
+                  cursor: item.disabled ? "default" : "pointer",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  textAlign: "left",
+                  opacity: item.disabled ? 0.4 : 1,
+                }}
+                onMouseEnter={(e) => { if (!item.disabled) e.currentTarget.style.background = hoverBg; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+              >
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </div>,
+        document.body
       )}
     </div>
   );
 }
-
-// ─── Edit User Modal ──────────────────────────────────────────────────────────
+// Edit User Modal
 function EditModal({ profile, divisions, units, onClose, onSaved }: {
   profile: Profile; divisions: Division[]; units: Unit[];
   onClose: () => void; onSaved: () => void;
 }) {
-  const [fullName,      setFullName]      = useState(profile.full_name);
+  const [fullName, setFullName] = useState(profile.full_name);
   const [positionTitle, setPositionTitle] = useState(profile.position_title ?? "");
-  const [systemRole,    setSystemRole]    = useState(profile.system_role);
-  const [divisionId,    setDivisionId]    = useState(profile.division_id ?? "");
-  const [unitId,        setUnitId]        = useState(profile.unit_id     ?? "");
-  const [saving,        setSaving]        = useState(false);
-  const [error,         setError]         = useState("");
+  const [systemRole, setSystemRole] = useState(profile.system_role);
+  const [divisionId, setDivisionId] = useState(profile.division_id ?? "");
+  const [unitId, setUnitId] = useState(profile.unit_id ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   const save = async () => {
-    setSaving(true); setError("");
+    setSaving(true);
+    setError("");
     const { error: e } = await supabase.from("profiles").update({
-      full_name:      fullName.trim(),
+      full_name: fullName.trim(),
       position_title: positionTitle.trim() || null,
-      system_role:    systemRole,
-      division_id:    divisionId || null,
-      unit_id:        unitId     || null,
+      system_role: systemRole,
+      division_id: divisionId || null,
+      unit_id: unitId || null,
     }).eq("user_id", profile.user_id);
-    if (e) { setError(e.message); setSaving(false); return; }
+    if (e) {
+      setError(e.message);
+      setSaving(false);
+      return;
+    }
     onSaved();
   };
 
   return (
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 200,
-      background: "rgba(0,0,0,.5)", display: "flex",
-      alignItems: "center", justifyContent: "center", padding: 16,
-    }}>
-      <div style={{
-        background: "var(--surface)", borderRadius: 16, padding: 24,
-        width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto",
-      }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: "var(--surface)", borderRadius: 16, padding: 24, width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--text)" }}>Edit User</h3>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "var(--text-muted)" }}>✕</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "var(--text-muted)" }}>x</button>
         </div>
         <div className="space-y-3">
-          <div>
-            <label className="form-label">Full Name</label>
-            <input className="tms-input" value={fullName} onChange={e => setFullName(e.target.value)} />
-          </div>
-          <div>
-            <label className="form-label">Position Title</label>
-            <input className="tms-input" placeholder="e.g. Senior Officer" value={positionTitle} onChange={e => setPositionTitle(e.target.value)} />
-          </div>
-          <div>
-            <label className="form-label">System Role</label>
-            <select className="tms-select" value={systemRole} onChange={e => setSystemRole(e.target.value)}>
-              {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-            </select>
-          </div>
+          <div><label className="form-label">Full Name</label><input className="tms-input" value={fullName} onChange={e => setFullName(e.target.value)} /></div>
+          <div><label className="form-label">Position Title</label><input className="tms-input" placeholder="e.g. Senior Officer" value={positionTitle} onChange={e => setPositionTitle(e.target.value)} /></div>
+          <div><label className="form-label">System Role</label><select className="tms-select" value={systemRole} onChange={e => setSystemRole(e.target.value)}>{ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}</select></div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="form-label">Division</label>
-              <select className="tms-select" value={divisionId}
-                onChange={e => { setDivisionId(e.target.value); setUnitId(""); }}>
-                <option value="">— None —</option>
+              <select className="tms-select" value={divisionId} onChange={e => { setDivisionId(e.target.value); setUnitId(""); }}>
+                <option value="">None</option>
                 {divisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
             </div>
             <div>
               <label className="form-label">Unit</label>
-              <select className="tms-select" value={unitId}
-                onChange={e => setUnitId(e.target.value)} disabled={!divisionId}>
-                <option value="">— None —</option>
-                {units.filter(u => u.division_id === divisionId).map(u =>
-                  <option key={u.id} value={u.id}>{u.name}</option>)}
+              <select className="tms-select" value={unitId} onChange={e => setUnitId(e.target.value)} disabled={!divisionId}>
+                <option value="">None</option>
+                {units.filter(u => u.division_id === divisionId).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
             </div>
           </div>
           {error && <div className="alert alert-error">{error}</div>}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, paddingTop: 4 }}>
             <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-            <button className="btn btn-primary" onClick={save} disabled={saving || !fullName.trim()}>
-              {saving ? "Saving…" : "Save Changes"}
-            </button>
+            <button className="btn btn-primary" onClick={save} disabled={saving || !fullName.trim()}>{saving ? "Saving..." : "Save Changes"}</button>
           </div>
         </div>
       </div>
@@ -247,38 +292,26 @@ function EditModal({ profile, divisions, units, onClose, onSaved }: {
   );
 }
 
-// ─── Reset Password Modal ─────────────────────────────────────────────────────
+// Reset Password Modal
 function ResetPasswordModal({ profile, onClose }: { profile: Profile; onClose: () => void }) {
-  const [pwd,    setPwd]    = useState(generatePassword());
+  const [pwd, setPwd] = useState(generatePassword());
   const [saving, setSaving] = useState(false);
-  const [done,   setDone]   = useState(false);
-  const [error,  setError]  = useState("");
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState("");
 
   const reset = async () => {
-    setSaving(true); setError("");
+    setSaving(true);
+    setError("");
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Not authenticated.");
-
       const res = await supabase.functions.invoke("reset-password", {
-        body: {
-          target_user_id: profile.user_id,
-          new_password:   pwd,
-        },
+        body: { target_user_id: profile.user_id, new_password: pwd },
       });
-
-      if (res.error) {
-        console.error("[reset-password] edge function error:", res.error);
-        throw new Error(res.error.message);
-      }
-      if (res.data?.error) {
-        console.error("[reset-password] response error:", res.data.error);
-        throw new Error(res.data.error);
-      }
-
+      if (res.error) throw new Error(res.error.message);
+      if (res.data?.error) throw new Error(res.data.error);
       setDone(true);
     } catch (e: any) {
-      console.error("[reset-password] caught:", e);
       setError(e.message ?? "Reset failed");
     } finally {
       setSaving(false);
@@ -286,47 +319,30 @@ function ResetPasswordModal({ profile, onClose }: { profile: Profile; onClose: (
   };
 
   return (
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 200,
-      background: "rgba(0,0,0,.5)", display: "flex",
-      alignItems: "center", justifyContent: "center", padding: 16,
-    }}>
-      <div style={{
-        background: "var(--surface)", borderRadius: 16, padding: 24,
-        width: "100%", maxWidth: 400,
-      }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: "var(--surface)", borderRadius: 16, padding: 24, width: "100%", maxWidth: 400 }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--text)" }}>Reset Password</h3>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "var(--text-muted)" }}>✕</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "var(--text-muted)" }}>x</button>
         </div>
         {done ? (
           <div className="space-y-3">
             <div className="alert alert-success">Password reset successfully.</div>
-            <div style={{
-              background: "var(--surface-2)", borderRadius: 8, padding: 12,
-              fontFamily: "monospace", fontSize: 14, color: "var(--text)", wordBreak: "break-all",
-            }}>{pwd}</div>
-            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
-              ⚠️ Share this with <strong>{profile.full_name}</strong> now — it won't be shown again.
-            </p>
+            <div style={{ background: "var(--surface-2)", borderRadius: 8, padding: 12, fontFamily: "monospace", fontSize: 14, color: "var(--text)", wordBreak: "break-all" }}>{pwd}</div>
+            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>Share this with <strong>{profile.full_name}</strong> now - it will not be shown again.</p>
             <button className="btn btn-ghost w-full" onClick={onClose}>Close</button>
           </div>
         ) : (
           <div className="space-y-3">
-            <p style={{ fontSize: 14, color: "var(--text-muted)", margin: 0 }}>
-              New password for <strong style={{ color: "var(--text)" }}>{profile.full_name}</strong>
-            </p>
+            <p style={{ fontSize: 14, color: "var(--text-muted)", margin: 0 }}>New password for <strong style={{ color: "var(--text)" }}>{profile.full_name}</strong></p>
             <div style={{ display: "flex", gap: 8 }}>
-              <input className="tms-input" style={{ fontFamily: "monospace" }}
-                value={pwd} onChange={e => setPwd(e.target.value)} />
+              <input className="tms-input" style={{ fontFamily: "monospace" }} value={pwd} onChange={e => setPwd(e.target.value)} />
               <button className="btn btn-ghost btn-sm" onClick={() => setPwd(generatePassword())}>Gen</button>
             </div>
             {error && <div className="alert alert-error">{error}</div>}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-              <button className="btn btn-primary" onClick={reset} disabled={saving || !pwd.trim()}>
-                {saving ? "Resetting…" : "Reset Password"}
-              </button>
+              <button className="btn btn-primary" onClick={reset} disabled={saving || !pwd.trim()}>{saving ? "Resetting..." : "Reset Password"}</button>
             </div>
           </div>
         )}
@@ -335,7 +351,7 @@ function ResetPasswordModal({ profile, onClose }: { profile: Profile; onClose: (
   );
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
+// Main
 export default function AdminUserManagement() {
   const [tab, setTab] = useState<Tab>("requests");
   const [divisions, setDivisions] = useState<Division[]>([]);
@@ -356,11 +372,12 @@ export default function AdminUserManagement() {
 
   const [reqForm, setReqForm] = useState<Record<string, { password: string; position_title: string; acting: boolean }>>({});
   const [rejectingId, setRejectingId] = useState<string | null>(null);
-  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState<Profile | null>(null);
   const [resetTarget, setResetTarget] = useState<Profile | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const load = async () => {
+    setLoading(true);
     const [{ data: d }, { data: u }, { data: r }, profs] = await Promise.all([
       supabase.from("divisions").select("id,name").order("name"),
       supabase.from("units").select("id,name,division_id").order("name"),
@@ -414,17 +431,24 @@ export default function AdminUserManagement() {
 
   const rejectRequest = async (id: string) => {
     setRejectingId(id);
-    try { await rejectUserRequest(id); await load(); }
-    finally { setRejectingId(null); }
+    try {
+      await rejectUserRequest(id);
+      await load();
+    } catch (err: any) {
+      alert(`Reject failed: ${err.message}`);
+    } finally {
+      setRejectingId(null);
+    }
   };
 
   const toggleStatus = async (p: Profile) => {
     setTogglingId(p.user_id);
     try {
-      // profile_status enum: active | pending | disabled  (NOT "inactive")
       await setUserStatus(p.user_id, p.status === "active" ? "disabled" : "active");
       await load();
-    } finally { setTogglingId(null); }
+    } finally {
+      setTogglingId(null);
+    }
   };
 
   const pendingCount = requests.length;
@@ -512,12 +536,12 @@ export default function AdminUserManagement() {
         </div>
       ) : (
         <>
-          {/* ── Pending Requests ── */}
+          {/* Pending Requests */}
           {tab === "requests" && (
             <div className="space-y-3">
               {requests.length === 0 ? (
                 <div className="empty-state">
-                  <div className="empty-state-icon">👤</div>
+                  <div className="empty-state-icon">[]</div>
                   <p>No pending requests</p>
                   <p style={{ fontSize: 12, color: "var(--text-dim)" }}>New access requests will appear here</p>
                 </div>
@@ -550,7 +574,7 @@ export default function AdminUserManagement() {
                               onClick={() => setRf({ password: generatePassword() })}>Generate</button>
                           </div>
                           <p style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>
-                            Share this with the user — they can change it after logging in.
+                            Share this with the user. They can change it after logging in.
                           </p>
                         </div>
                         <div>
@@ -561,11 +585,11 @@ export default function AdminUserManagement() {
                         <div className="grid grid-cols-2 gap-2" style={{ paddingTop: 4 }}>
                           <button className="btn btn-danger" onClick={() => rejectRequest(r.id)}
                             disabled={rejectingId === r.id}>
-                            {rejectingId === r.id ? "Rejecting…" : "Reject"}
+                            {rejectingId === r.id ? "Rejecting..." : "Reject"}
                           </button>
                           <button className="btn btn-primary" onClick={() => approveRequest(r)}
                             disabled={!rf.password.trim() || rf.acting}>
-                            {rf.acting ? "Creating…" : "Approve & Create ✓"}
+                            {rf.acting ? "Creating..." : "Approve and Create"}
                           </button>
                         </div>
                       </div>
@@ -576,12 +600,12 @@ export default function AdminUserManagement() {
             </div>
           )}
 
-          {/* ── Create User ── */}
+          {/* Create User */}
           {tab === "create" && (
             <div style={{ maxWidth: 520 }} className="space-y-4">
               {createSuccess && (
                 <div className="alert alert-success" style={{ flexDirection: "column", alignItems: "flex-start", gap: 8 }}>
-                  <strong>✓ User created successfully!</strong>
+                  <strong>User created successfully!</strong>
                   <div style={{
                     background: "var(--surface)", border: "1px solid var(--border)",
                     borderRadius: 8, padding: 10, fontSize: 12, fontFamily: "monospace", width: "100%",
@@ -592,7 +616,7 @@ export default function AdminUserManagement() {
                       <strong style={{ color: "var(--green)" }}>{createSuccess.password}</strong></div>
                   </div>
                   <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>
-                    ⚠️ Share the password now — it won't be shown again.
+                    Share the password now. It will not be shown again.
                   </p>
                   <button onClick={() => setCreateSuccess(null)}
                     style={{ fontSize: 12, color: "var(--accent)", background: "none", border: "none", cursor: "pointer" }}>
@@ -630,7 +654,7 @@ export default function AdminUserManagement() {
                         <button type="button" onClick={() => setShowPwd(v => !v)} style={{
                           position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
                           background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 14,
-                        }}>{showPwd ? "🙈" : "👁"}</button>
+                        }}>{showPwd ? "Hide" : "Show"}</button>
                       </div>
                       <button type="button" className="btn btn-ghost btn-sm"
                         onClick={() => { const p = generatePassword(); setForm(f => ({ ...f, password: p })); setShowPwd(true); }}>
@@ -659,7 +683,7 @@ export default function AdminUserManagement() {
                       <label className="form-label">Division</label>
                       <select className="tms-select" value={form.division_id}
                         onChange={e => setForm(f => ({ ...f, division_id: e.target.value, unit_id: "" }))}>
-                        <option value="">— None —</option>
+                        <option value="">None</option>
                         {divisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                       </select>
                     </div>
@@ -667,7 +691,7 @@ export default function AdminUserManagement() {
                       <label className="form-label">Unit</label>
                       <select className="tms-select" value={form.unit_id}
                         onChange={e => setForm(f => ({ ...f, unit_id: e.target.value }))} disabled={!form.division_id}>
-                        <option value="">— None —</option>
+                        <option value="">None</option>
                         {filteredUnits(form.division_id).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                       </select>
                     </div>
@@ -680,7 +704,7 @@ export default function AdminUserManagement() {
                   {createError && <div className="alert alert-error">{createError}</div>}
                   <div style={{ display: "flex", justifyContent: "flex-end" }}>
                     <button type="submit" className="btn btn-primary" disabled={createSaving}>
-                      {createSaving ? "Creating…" : "Create User"}
+                      {createSaving ? "Creating..." : "Create User"}
                     </button>
                   </div>
                 </div>
@@ -688,11 +712,11 @@ export default function AdminUserManagement() {
             </div>
           )}
 
-          {/* ── All Users ── */}
+          {/* All Users */}
           {tab === "users" && (
             <div className="space-y-3">
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <input className="tms-input" style={{ maxWidth: 260 }} placeholder="Search name, role…"
+                <input className="tms-input" style={{ maxWidth: 260 }} placeholder="Search name or role..."
                   value={search} onChange={e => setSearch(e.target.value)} />
                 <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: "auto", fontFamily: "monospace" }}>
                   {profiles.length} users
@@ -743,7 +767,7 @@ export default function AdminUserManagement() {
                             {p.system_role?.replace(/_/g, " ")}
                           </span>
                         </td>
-                        <td style={{ color: "var(--text-muted)", fontSize: 13 }}>{p.position_title || "—"}</td>
+                        <td style={{ color: "var(--text-muted)", fontSize: 13 }}>{p.position_title || "-"}</td>
                         <td>
                           <span className={`badge ${p.status === "active" ? "badge-approved" : "badge-rejected"}`}>
                             {p.status}
@@ -762,7 +786,7 @@ export default function AdminUserManagement() {
 
               {filteredProfiles.length === 0 && (
                 <div className="empty-state">
-                  <div className="empty-state-icon">👥</div>
+                  <div className="empty-state-icon">[]</div>
                   <p>No users found</p>
                 </div>
               )}
@@ -781,3 +805,4 @@ export default function AdminUserManagement() {
     </div>
   );
 }
+

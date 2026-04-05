@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { fmtDate } from "@/lib/utils";
+import { Btn, PageSpinner, SearchInput, TabBar } from "@/components/TmsUI";
 
 type Vehicle = {
   id: string;
@@ -56,9 +57,9 @@ function ExpiryCell({ date, label }: { date: string | null; label: string }) {
     <div>
       <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 2 }}>{label}</div>
       <div style={{ fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", color }}>
-        {date ? fmtDate(date) : "—"}
-        {expired && " ⚠️"}
-        {!expired && soon && " ⏰"}
+        {date ? fmtDate(date) : "-"}
+        {expired && " overdue"}
+        {!expired && soon && " due soon"}
       </div>
     </div>
   );
@@ -191,115 +192,74 @@ export default function VehicleManagement() {
     return (ins !== null && ins <= 30) || (rw !== null && rw <= 30);
   });
 
-  if (loading) {
-  return (
-    <div className="space-y-3">
-      {[...Array(5)].map((_, i) => (
-        <div key={i} className="card p-4 space-y-3">
-          <div className="skeleton h-4 w-1/3" />
-          <div className="skeleton h-3 w-1/2" />
-          <div className="grid grid-cols-2 gap-2">
-            <div className="skeleton h-10" />
-            <div className="skeleton h-10" />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
+  if (loading) return <PageSpinner variant="dashboard" />;
 
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="page-header" style={{ marginBottom: 0 }}>
-          <h1 className="page-title">Vehicle Management</h1>
-          <p className="page-sub">{vehicles.length} vehicle{vehicles.length !== 1 ? "s" : ""} registered</p>
-        </div>
-        <button className="btn btn-primary" onClick={openAdd}>+ Add Vehicle</button>
+      <div className="page-header" style={{ marginBottom: 0 }}>
+        <h1 className="page-title">Vehicle Management</h1>
+        <p className="page-sub">{vehicles.length} vehicle{vehicles.length !== 1 ? "s" : ""} registered</p>
       </div>
 
-      {/* Expiry alerts */}
+            {/* Expiry alerts */}
       {expiryAlerts.length > 0 && (
-  <div
-    className="rounded-2xl border p-4 flex items-start gap-3"
-    style={{
-      background: "rgba(245, 158, 11, 0.08)", // soft amber
-      borderColor: "var(--amber)",
-    }}
-  >
-    <div
-      className="w-9 h-9 flex items-center justify-center rounded-xl shrink-0"
-      style={{ background: "var(--amber)", color: "#fff", fontSize: 16 }}
-    >
-      ⚠
-    </div>
+        <div
+          style={{
+            display: "flex",
+            gap: 14,
+            padding: "14px 16px",
+            borderRadius: 14,
+            background: "rgba(217,119,6,0.07)",
+            border: "1px solid rgba(217,119,6,0.35)",
+            borderLeft: "4px solid var(--amber)",
+          }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--amber)", flexShrink: 0 }}>Alert</div>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "var(--amber)", marginBottom: 4 }}>
+              {expiryAlerts.length} vehicle document{expiryAlerts.length > 1 ? "s" : ""} expiring within 30 days
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px" }}>
+              {expiryAlerts.slice(0, 6).map((v) => (
+                <span
+                  key={`compact-${v.id}`}
+                  style={{
+                    fontSize: 12,
+                    color: "var(--text-muted)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  <span style={{ fontWeight: 600, color: "var(--text)" }}>{v.plate_number}</span>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, opacity: 0.8 }}>
+                    - {v.insurance_expiry ? fmtDate(v.insurance_expiry) : v.roadworthy_expiry ? fmtDate(v.roadworthy_expiry) : "soon"}
+                  </span>
+                </span>
+              ))}
+              {expiryAlerts.length > 6 && (
+                <span style={{ fontSize: 12, color: "var(--text-dim)" }}>
+                  +{expiryAlerts.length - 6} more
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
-    <div className="flex-1">
-      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
-        Expiring Documents
-      </div>
-
-      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-        <strong>{expiryAlerts.length}</strong> vehicle
-        {expiryAlerts.length > 1 ? "s have" : " has"} documents expiring within 30 days
-      </div>
-
-      <div className="flex flex-wrap gap-2 mt-3">
-        {expiryAlerts.slice(0, 6).map(v => (
-          <span
-            key={v.id}
-            className="px-2 py-1 text-xs rounded-lg"
-            style={{
-              background: "var(--surface)",
-              border: "1px solid var(--border)",
-              color: "var(--text)",
-              fontFamily: "'IBM Plex Mono', monospace",
-            }}
-          >
-            {v.plate_number}
-          </span>
-        ))}
-
-        {expiryAlerts.length > 6 && (
-          <span
-            className="px-2 py-1 text-xs rounded-lg"
-            style={{
-              background: "var(--surface-2)",
-              color: "var(--text-muted)",
-            }}
-          >
-            +{expiryAlerts.length - 6} more
-          </span>
-        )}
-      </div>
-    </div>
-  </div>
-)}
-
-      {/* Tabs */}
-      <div className="tab-group">
-        {tabs.map(t => (
-          <button
-            key={t.value}
-            className={`tab-item ${tab === t.value ? "active" : ""}`}
-            onClick={() => setTab(t.value)}
-          >
-            {t.label}
-            {counts[t.value] > 0 && (
-              <span className="count-pill">{counts[t.value]}</span>
-            )}
-          </button>
-        ))}
-      </div>
+            {/* Tabs */}
+      <TabBar tabs={tabs} active={tab} onChange={setTab} counts={counts} />
 
       {/* Search */}
-      <input
-        className="tms-input max-w-xs"
-        placeholder="Search plate, make, model…"
-        value={q}
-        onChange={e => setQ(e.target.value)}
-      />
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <div className="w-full lg:max-w-xs">
+          <SearchInput value={q} onChange={setQ} placeholder="Search plate, make, model..." />
+        </div>
+        <div className="lg:ml-auto flex w-full lg:w-auto">
+          <Btn variant="primary" className="w-full lg:w-auto" onClick={openAdd}>+ Add Vehicle</Btn>
+        </div>
+      </div>
 
       {/* Mobile cards */}
       <div className="sm:hidden space-y-3">
@@ -316,8 +276,8 @@ export default function VehicleManagement() {
                     {v.plate_number}
                   </div>
                   <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
-                    {[v.year, v.make, v.model].filter(Boolean).join(" ") || "—"}
-                    {v.color && ` · ${v.color}`}
+                    {[v.year, v.make, v.model].filter(Boolean).join(" ") || "-"}
+                    {v.color && ` - ${v.color}`}
                   </div>
                 </div>
                 <span className={`badge badge-${v.status === "active" ? "approved" : v.status === "maintenance" ? "amber" : "closed"}`}>
@@ -328,11 +288,11 @@ export default function VehicleManagement() {
               <div className="grid grid-cols-2 gap-2">
                 <div style={{ fontSize: 12 }}>
                   <div style={{ color: "var(--text-dim)", marginBottom: 2 }}>Fuel type</div>
-                  <div style={{ color: "var(--text)", textTransform: "capitalize" }}>{v.fuel_type || "—"}</div>
+                  <div style={{ color: "var(--text)", textTransform: "capitalize" }}>{v.fuel_type || "-"}</div>
                 </div>
                 <div style={{ fontSize: 12 }}>
                   <div style={{ color: "var(--text-dim)", marginBottom: 2 }}>Mileage</div>
-                  <div style={{ color: "var(--text)" }}>{v.current_mileage != null ? `${v.current_mileage.toLocaleString()} km` : "—"}</div>
+                  <div style={{ color: "var(--text)" }}>{v.current_mileage != null ? `${v.current_mileage.toLocaleString()} km` : "-"}</div>
                 </div>
               </div>
 
@@ -345,11 +305,11 @@ export default function VehicleManagement() {
                 <div className="flex gap-2">
                   {v.insurance_doc_url && (
                     <a href={v.insurance_doc_url} target="_blank" rel="noopener noreferrer"
-                      className="btn btn-ghost btn-sm">📄 Insurance</a>
+                      className="btn btn-ghost btn-sm">Insurance Doc</a>
                   )}
                   {v.roadworthy_doc_url && (
                     <a href={v.roadworthy_doc_url} target="_blank" rel="noopener noreferrer"
-                      className="btn btn-ghost btn-sm">📄 Roadworthy</a>
+                      className="btn btn-ghost btn-sm">Roadworthy Doc</a>
                   )}
                 </div>
               )}
@@ -389,12 +349,12 @@ export default function VehicleManagement() {
                       <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13 }}>{v.plate_number}</div>
                     </td>
                     <td>
-                      <div>{[v.year, v.make, v.model].filter(Boolean).join(" ") || "—"}</div>
+                      <div>{[v.year, v.make, v.model].filter(Boolean).join(" ") || "-"}</div>
                       {v.color && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{v.color}</div>}
                     </td>
-                    <td style={{ textTransform: "capitalize", fontSize: 13 }}>{v.fuel_type || "—"}</td>
+                    <td style={{ textTransform: "capitalize", fontSize: 13 }}>{v.fuel_type || "-"}</td>
                     <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13 }}>
-                      {v.current_mileage != null ? `${v.current_mileage.toLocaleString()} km` : "—"}
+                      {v.current_mileage != null ? `${v.current_mileage.toLocaleString()} km` : "-"}
                     </td>
                     <td><ExpiryCell date={v.insurance_expiry} label="" /></td>
                     <td><ExpiryCell date={v.roadworthy_expiry} label="" /></td>
@@ -402,14 +362,14 @@ export default function VehicleManagement() {
                       <div className="flex gap-1">
                         {v.insurance_doc_url && (
                           <a href={v.insurance_doc_url} target="_blank" rel="noopener noreferrer"
-                            style={{ fontSize: 11, color: "var(--accent)" }}>Ins ↗</a>
+                            style={{ fontSize: 11, color: "var(--accent)" }}>Ins -&gt;</a>
                         )}
                         {v.roadworthy_doc_url && (
                           <a href={v.roadworthy_doc_url} target="_blank" rel="noopener noreferrer"
-                            style={{ fontSize: 11, color: "var(--accent)", marginLeft: 6 }}>RW ↗</a>
+                            style={{ fontSize: 11, color: "var(--accent)", marginLeft: 6 }}>RW -&gt;</a>
                         )}
                         {!v.insurance_doc_url && !v.roadworthy_doc_url && (
-                          <span style={{ color: "var(--text-dim)", fontSize: 12 }}>—</span>
+                          <span style={{ color: "var(--text-dim)", fontSize: 12 }}>-</span>
                         )}
                       </div>
                     </td>
@@ -449,7 +409,7 @@ export default function VehicleManagement() {
               <button
                 onClick={() => setShowForm(false)}
                 style={{ color: "var(--text-muted)", padding: 4, borderRadius: 8, lineHeight: 1 }}
-              >✕</button>
+              >x</button>
             </div>
 
             {/* Modal body */}
@@ -522,7 +482,7 @@ export default function VehicleManagement() {
                   onClick={() => insRef.current?.click()}
                   style={{ justifyContent: "flex-start" }}
                 >
-                  {insuranceFile ? `📄 ${insuranceFile.name}` : "📁 Upload PDF / Image"}
+                  {insuranceFile ? `File: ${insuranceFile.name}` : "Choose file: PDF / Image"}
                 </button>
               </div>
               <div>
@@ -533,19 +493,19 @@ export default function VehicleManagement() {
                   onClick={() => rwRef.current?.click()}
                   style={{ justifyContent: "flex-start" }}
                 >
-                  {roadworthyFile ? `📄 ${roadworthyFile.name}` : "📁 Upload PDF / Image"}
+                  {roadworthyFile ? `File: ${roadworthyFile.name}` : "Choose file: PDF / Image"}
                 </button>
               </div>
 
               {/* Notes */}
               <div style={{ gridColumn: "1/-1" }}>
                 <label className="form-label">Notes</label>
-                <textarea className="tms-textarea" rows={2} value={form.notes} onChange={e => f("notes", e.target.value)} placeholder="Any notes…" />
+                <textarea className="tms-textarea" rows={2} value={form.notes} onChange={e => f("notes", e.target.value)} placeholder="Any notes..." />
               </div>
 
               {error && (
                 <div style={{ gridColumn: "1/-1" }} className="alert alert-error">
-                  <span className="alert-icon">✕</span>
+                  <span className="alert-icon">x</span>
                   <span className="alert-content">{error}</span>
                 </div>
               )}
@@ -553,7 +513,7 @@ export default function VehicleManagement() {
               <div style={{ gridColumn: "1/-1", display: "flex", justifyContent: "flex-end", gap: 10 }}>
                 <button className="btn btn-ghost" onClick={() => setShowForm(false)}>Cancel</button>
                 <button className="btn btn-primary" disabled={saving || uploadingDoc} onClick={save}>
-                  {saving || uploadingDoc ? "Saving…" : editingId ? "Update Vehicle" : "Add Vehicle"}
+                  {saving || uploadingDoc ? "Saving..." : editingId ? "Update Vehicle" : "Add Vehicle"}
                 </button>
               </div>
             </div>
@@ -563,3 +523,4 @@ export default function VehicleManagement() {
     </div>
   );
 }
+

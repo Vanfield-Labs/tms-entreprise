@@ -7,6 +7,7 @@ export type NotificationEntityType =
   | "incident_report"
   | "trip"
   | "news_assignment"
+  | "driver_leave_request"
   | "camera_pickup"
   | "unit_pickup_schedule"
   | "user_request"
@@ -24,13 +25,25 @@ const ENTITY_ROUTE_MAP: Record<string, NotificationTarget> = {
     navLabel: "Bookings",
     eventName: "tms:focus-booking",
   },
+  fuel: {
+    navLabel: "Fuel Requests",
+    eventName: "tms:focus-fuel-request",
+  },
   fuel_request: {
     navLabel: "Fuel Requests",
     eventName: "tms:focus-fuel-request",
   },
+  maintenance: {
+    navLabel: "Maintenance",
+    eventName: "tms:focus-maintenance-request",
+  },
   maintenance_request: {
     navLabel: "Maintenance",
     eventName: "tms:focus-maintenance-request",
+  },
+  incident: {
+    navLabel: "Incident Report",
+    eventName: "tms:focus-incident-report",
   },
   incident_report: {
     navLabel: "Incident Report",
@@ -44,6 +57,10 @@ const ENTITY_ROUTE_MAP: Record<string, NotificationTarget> = {
     navLabel: "Assignment",
     eventName: "tms:focus-news-assignment",
   },
+  driver_leave_request: {
+    navLabel: "Leave",
+    eventName: "tms:focus-driver-leave-request",
+  },
   camera_pickup: {
     navLabel: "Camera Pickup",
     eventName: "tms:focus-camera-pickup",
@@ -53,6 +70,10 @@ const ENTITY_ROUTE_MAP: Record<string, NotificationTarget> = {
     eventName: "tms:focus-unit-pickup-schedule",
   },
   user_request: {
+    navLabel: "User Requests",
+    eventName: "tms:focus-user-request",
+  },
+  user: {
     navLabel: "User Requests",
     eventName: "tms:focus-user-request",
   },

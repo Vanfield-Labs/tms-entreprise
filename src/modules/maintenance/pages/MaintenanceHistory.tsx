@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
+import { PageSpinner } from "@/components/TmsUI";
 
 type Vehicle = { id: string; plate_number: string; make?: string; model?: string };
 type Request = {
@@ -79,6 +80,8 @@ export default function MaintenanceHistory() {
     critical: vehicleRequests.filter((r) => r.priority === "critical").length,
   };
 
+  if (loading) return <PageSpinner variant="table" rows={8} cols={6} />;
+
   return (
     <div className="space-y-4">
       <div className="page-header">
@@ -137,11 +140,7 @@ export default function MaintenanceHistory() {
         <span className="text-xs text-gray-400 font-mono ml-auto">{filtered.length} records</span>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <div className="w-6 h-6 border-2 border-gray-900 border-t-transparent rounded-full animate-spin" />
-        </div>
-      ) : filtered.length === 0 ? (
+      {filtered.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
           <div className="text-3xl mb-2">🔧</div>
           <p className="text-sm">No maintenance records found</p>

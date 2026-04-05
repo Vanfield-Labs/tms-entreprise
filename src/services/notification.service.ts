@@ -9,6 +9,7 @@ export type NotificationEntityType =
   | "incident_report"
   | "trip"
   | "news_assignment"
+  | "driver_leave_request"
   | "camera_pickup"
   | "unit_pickup_schedule"
   | "user_request"

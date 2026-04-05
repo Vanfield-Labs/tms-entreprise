@@ -683,9 +683,18 @@ const handleSignOut = async () => {
       }
 
       if (role === "transport_supervisor" || role === "admin") {
-        promises.push(qCount("Dispatch", "bookings", { status: "approved" }));
+        promises.push(
+          (async () => {
+            const [{ count: approvedCount }, { count: completedCount }] = await Promise.all([
+              supabase.from("bookings").select("id", { count: "exact", head: true }).eq("status", "approved"),
+              supabase.from("bookings").select("id", { count: "exact", head: true }).eq("status", "completed"),
+            ]);
+
+            const total = Number(approvedCount ?? 0) + Number(completedCount ?? 0);
+            if (total > 0) badges["Trips"] = total;
+          })()
+        );
         promises.push(qCount("Record Fuel", "fuel_requests", { status: "approved" }));
-        promises.push(qCount("Close Trips", "bookings", { status: "completed" }));
       }
 
       if (role === "admin") {
@@ -705,11 +714,16 @@ const handleSignOut = async () => {
 
   const navigateByEntity = (entityType: string, entityId?: string | null) => {
     const candidateMap: Record<string, string[]> = {
-      booking: ["Finance Bookings", "Booking Approvals", "Dispatch", "All Bookings", "My Bookings", "Reports"],
-      fuel_request: ["Fuel Approvals", "Fuel Requests", "Record Fuel", "Fuel History", "Reports"],
-      maintenance_request: ["Finance Maintenance", "Maintenance Approvals", "Maintenance", "Maint. History", "Maintenance History", "Reports"],
+      booking: ["Finance Bookings", "Booking Approvals", "Trips", "All Bookings", "My Bookings", "Reports"],
+      fuel: ["Fuel Mileage Log", "Fuel Approvals", "Fuel Requests", "Record Fuel", "Fuel History", "Reports"],
+      fuel_request: ["Fuel Mileage Log", "Fuel Approvals", "Fuel Requests", "Record Fuel", "Fuel History", "Reports"],
+      maintenance: ["Finance Maintenance", "Maintenance Approvals", "Maintenance", "Maintenance History", "Reports"],
+      maintenance_request: ["Finance Maintenance", "Maintenance Approvals", "Maintenance", "Maintenance History", "Reports"],
+      incident: ["Incidents", "Incident Report", "Reports"],
       incident_report: ["Incidents", "Incident Report", "Reports"],
-      trip: ["Close Trips", "Dispatch", "My Trips", "Reports"],
+      trip: ["Trips", "My Trips", "Reports"],
+      driver_leave_request: ["Leave", "Drivers", "Reports"],
+      user: ["Users", "User Requests", "Reports"],
       user_request: ["Users", "User Requests", "Reports"],
       password_change_request: ["Users", "User Requests", "Reports"],
       approval: ["Reports"],

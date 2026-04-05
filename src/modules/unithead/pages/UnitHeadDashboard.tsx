@@ -213,7 +213,7 @@ export default function UnitHeadDashboard() {
     camera: deployedTechs.length,
   };
 
-  if (loading) return <PageSpinner />;
+  if (loading) return <PageSpinner variant="dashboard" />;
   if (!unitId) return <EmptyState title="No unit assigned" subtitle="Contact your administrator" />;
 
   return (

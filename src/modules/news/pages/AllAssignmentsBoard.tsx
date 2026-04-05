@@ -115,7 +115,7 @@ export default function AllAssignmentsBoard() {
     all:      assignments.length,
   };
 
-  if (loading) return <PageSpinner />;
+  if (loading) return <PageSpinner variant="cards" count={4} />;
 
   return (
     <div className="space-y-4">

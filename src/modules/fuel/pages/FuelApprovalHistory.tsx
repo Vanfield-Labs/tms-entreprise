@@ -45,7 +45,7 @@ export default function FuelApprovalHistory() {
     return mS && mQ;
   });
 
-  if (loading) return <PageSpinner />;
+  if (loading) return <PageSpinner variant="table" rows={6} cols={10} />;
 
   return (
     <div className="space-y-4">

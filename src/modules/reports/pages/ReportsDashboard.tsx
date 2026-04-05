@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom";
 import { debounce } from "@/lib/debounce";
 
 type Period = "week" | "month" | "quarter" | "year";
+type PeriodRange = { from: string; to: string; label: string };
 
 type KPI = {
   total_bookings: number;
@@ -55,7 +56,7 @@ type VehicleUtil = {
   total_km: number | null;
 };
 
-function getPeriodRange(period: Period): { from: string; to: string; label: string } {
+function getPeriodRange(period: Period, offset = 0): PeriodRange {
   const now = new Date();
   let from = new Date();
   let to = new Date();
@@ -63,22 +64,24 @@ function getPeriodRange(period: Period): { from: string; to: string; label: stri
   if (period === "week") {
     const dow = now.getDay();
     from = new Date(now);
-    from.setDate(now.getDate() - dow);
+    from.setDate(now.getDate() - dow - offset * 7);
     from.setHours(0, 0, 0, 0);
 
     to = new Date(from);
     to.setDate(from.getDate() + 6);
     to.setHours(23, 59, 59, 999);
   } else if (period === "month") {
-    from = new Date(now.getFullYear(), now.getMonth(), 1);
+    from = new Date(now.getFullYear(), now.getMonth() - offset, 1);
     to = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    to = new Date(from.getFullYear(), from.getMonth() + 1, 0, 23, 59, 59, 999);
   } else if (period === "quarter") {
-    const q = Math.floor(now.getMonth() / 3);
-    from = new Date(now.getFullYear(), q * 3, 1);
-    to = new Date(now.getFullYear(), q * 3 + 3, 0, 23, 59, 59);
+    const currentQuarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+    const quarterDate = new Date(now.getFullYear(), currentQuarterStartMonth - offset * 3, 1);
+    from = new Date(quarterDate.getFullYear(), quarterDate.getMonth(), 1);
+    to = new Date(quarterDate.getFullYear(), quarterDate.getMonth() + 3, 0, 23, 59, 59, 999);
   } else {
-    from = new Date(now.getFullYear(), 0, 1);
-    to = new Date(now.getFullYear(), 11, 31, 23, 59, 59);
+    from = new Date(now.getFullYear() - offset, 0, 1);
+    to = new Date(now.getFullYear() - offset, 11, 31, 23, 59, 59, 999);
   }
 
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
@@ -94,8 +97,7 @@ function getPeriodRange(period: Period): { from: string; to: string; label: stri
   return { from: fmt(from), to: fmt(to), label: labels[period] };
 }
 
-function exportToCSV(period: Period, kpi: KPI, bookings: BookingRow[], fuel: FuelRow[], maint: MaintRow[]) {
-  const { label } = getPeriodRange(period);
+function exportToCSV(label: string, kpi: KPI, bookings: BookingRow[], fuel: FuelRow[], maint: MaintRow[]) {
   const esc = (v: any) => `"${String(v ?? "").replace(/"/g, '""')}"`;
 
   const sections: string[][] = [];
@@ -386,6 +388,7 @@ export default function ReportsDashboard() {
   const navigate = useNavigate();
 
   const [period, setPeriod] = useState<Period>("month");
+  const [periodOffset, setPeriodOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [kpi, setKpi] = useState<KPI | null>(null);
   const [bookings, setBookings] = useState<BookingRow[]>([]);
@@ -396,11 +399,12 @@ export default function ReportsDashboard() {
 
   const maintPg = usePagination(maint);
   const utilPg = usePagination(utilization);
+  const range = useMemo(() => getPeriodRange(period, periodOffset), [period, periodOffset]);
 
   const load = useCallback(async (force = false) => {
     setLoading(true);
-    const { from, to } = getPeriodRange(period);
-    const cacheKey = `reports_dashboard:${period}:${from}:${to}`;
+    const { from, to } = range;
+    const cacheKey = `reports_dashboard:${period}:${periodOffset}:${from}:${to}`;
 
     const result = await cachedFetch(
       cacheKey,
@@ -461,7 +465,7 @@ export default function ReportsDashboard() {
     setUtilization(result.vRows);
     setKpi(result.kpiData);
     setLoading(false);
-  }, [period]);
+  }, [period, periodOffset, range]);
 
   useEffect(() => {
     void load();
@@ -478,7 +482,7 @@ export default function ReportsDashboard() {
     onRefresh: debouncedRefresh,
   });
 
-  const { label } = getPeriodRange(period);
+  const { label } = range;
 
   const topInsight = (() => {
     if (!kpi) return "";
@@ -590,7 +594,7 @@ export default function ReportsDashboard() {
         open={showExport}
         label={label}
         onConfirm={() => {
-          if (kpi) exportToCSV(period, kpi, bookings, fuel, maint);
+          if (kpi) exportToCSV(label, kpi, bookings, fuel, maint);
           setShowExport(false);
         }}
         onCancel={() => setShowExport(false)}
@@ -612,7 +616,10 @@ export default function ReportsDashboard() {
             {periods.map((p) => (
               <button
                 key={p.value}
-                onClick={() => setPeriod(p.value)}
+                onClick={() => {
+                  setPeriod(p.value);
+                  setPeriodOffset(0);
+                }}
                 className="px-3 py-2 text-xs font-medium transition-colors"
                 style={{
                   background: period === p.value ? "var(--accent)" : "var(--surface)",
@@ -622,6 +629,33 @@ export default function ReportsDashboard() {
                 {p.label}
               </button>
             ))}
+          </div>
+
+          <div
+            className="flex rounded-xl overflow-hidden border min-h-[36px]"
+            style={{ borderColor: "var(--border)" }}
+          >
+            <button
+              type="button"
+              onClick={() => setPeriodOffset((current) => current + 1)}
+              className="px-3 py-2 text-xs font-medium transition-colors"
+              style={{ background: "var(--surface)", color: "var(--text)" }}
+            >
+              Prev
+            </button>
+            <button
+              type="button"
+              disabled={periodOffset === 0}
+              onClick={() => setPeriodOffset((current) => Math.max(0, current - 1))}
+              className="px-3 py-2 text-xs font-medium transition-colors border-l"
+              style={{
+                background: periodOffset === 0 ? "var(--surface-2)" : "var(--surface)",
+                color: periodOffset === 0 ? "var(--text-dim)" : "var(--text)",
+                borderColor: "var(--border)",
+              }}
+            >
+              Next
+            </button>
           </div>
 
           <button
