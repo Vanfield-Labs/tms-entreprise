@@ -1,5 +1,8 @@
 [functions.create-user]
-verify_jwt = false
+verify_jwt = true
 
 [functions.reset-password]
+verify_jwt = true
+
+[functions.supplier-portal]
 verify_jwt = false

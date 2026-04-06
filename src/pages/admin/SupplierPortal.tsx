@@ -18,6 +18,23 @@ type LicenceStatus = {
   days_remaining: number;
 };
 
+type SupplierVerifyResponse = {
+  success?: boolean;
+  token?: string;
+  error?: string;
+};
+
+type SupplierStatusResponse = LicenceStatus & {
+  success?: boolean;
+  error?: string;
+};
+
+type SupplierActionResponse = {
+  success?: boolean;
+  error?: string;
+  valid_until?: string;
+};
+
 const ALL_FEATURES = [
   "fleet", "fuel", "bookings", "maintenance", "shifts",
   "camera", "news_assignments", "incidents", "reports",
@@ -46,15 +63,41 @@ export default function SupplierPortal() {
   const [deactivating, setDeactivating] = useState(false);
   const [confirmDeact, setConfirmDeact] = useState(false);
 
+  const callSupplierPortal = async <T,>(body: Record<string, unknown>) => {
+    const { data, error } = await supabase.functions.invoke("supplier-portal", {
+      body,
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data ?? null) as T;
+  };
+
   // ── Step 1: verify PIN ──────────────────────────────────────────────────────
   const verifyPin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pin.trim()) return;
     setPinLoading(true); setPinError(null);
-    const { data, error } = await supabase.rpc("supplier_verify_pin", { p_pin: pin });
+
+    let data: SupplierVerifyResponse | null = null;
+
+    try {
+      data = await callSupplierPortal<SupplierVerifyResponse>({
+        action: "verify_pin",
+        pin,
+      });
+    } catch (error) {
+      setPinLoading(false);
+      setPinError(error instanceof Error ? error.message : "Invalid PIN");
+      setPin("");
+      return;
+    }
+
     setPinLoading(false);
-    if (error || !data?.success) {
-      setPinError(data?.error ?? error?.message ?? "Invalid PIN");
+    if (!data?.success || !data.token) {
+      setPinError(data?.error ?? "Invalid PIN");
       setPin("");
       return;
     }
@@ -65,10 +108,23 @@ export default function SupplierPortal() {
   // ── Load current licence status ─────────────────────────────────────────────
   const loadStatus = async (tok: string) => {
     setStatusLoading(true);
-    const { data, error } = await supabase.rpc("supplier_get_licence_status", { p_token: tok });
+
+    let data: SupplierStatusResponse | null = null;
+
+    try {
+      data = await callSupplierPortal<SupplierStatusResponse>({
+        action: "get_status",
+        token: tok,
+      });
+    } catch (error) {
+      setStatusLoading(false);
+      setToken(null);
+      setPinError(error instanceof Error ? error.message : "Session expired. Please re-enter your PIN.");
+      return;
+    }
+
     setStatusLoading(false);
-    if (error || !data?.success) {
-      // Token was consumed — need to re-auth
+    if (!data?.success) {
       setToken(null);
       setPinError("Session expired. Please re-enter your PIN.");
       return;
@@ -84,33 +140,59 @@ export default function SupplierPortal() {
   const renew = async () => {
     if (!token || !newExpiry) return;
     setRenewing(true); setRenewMsg(null); setRenewError(null);
-    const { data, error } = await supabase.rpc("supplier_renew_licence", {
-      p_token:       token,
-      p_valid_until: newExpiry,
-      p_max_users:   newMaxUsers ? parseInt(newMaxUsers) : null,
-      p_tier:        newTier || null,
-      p_features:    newFeatures.length > 0 ? newFeatures : null,
-    });
-    setRenewing(false);
-    if (error || !data?.success) {
-      setRenewError(data?.error ?? error?.message ?? "Renewal failed");
-      // Token is now invalid — re-auth required
+
+    let data: SupplierActionResponse | null = null;
+
+    try {
+      data = await callSupplierPortal<SupplierActionResponse>({
+        action: "renew",
+        token,
+        valid_until: newExpiry,
+        max_users: newMaxUsers ? parseInt(newMaxUsers, 10) : null,
+        tier: newTier || null,
+        features: newFeatures.length > 0 ? newFeatures : null,
+      });
+    } catch (error) {
+      setRenewing(false);
+      setRenewError(error instanceof Error ? error.message : "Renewal failed");
       setToken(null);
       return;
     }
-    setRenewMsg(`✓ Licence renewed to ${new Date(data.valid_until).toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })}`);
+
+    setRenewing(false);
+    if (!data?.success || !data.valid_until) {
+      setRenewError(data?.error ?? "Renewal failed");
+      setToken(null);
+      return;
+    }
+    const renewedUntil = data.valid_until;
+    setRenewMsg(`✓ Licence renewed to ${new Date(renewedUntil).toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })}`);
     // Token consumed — need to re-auth for next action
     setToken(null);
-    setStatus(prev => prev ? { ...prev, valid_until: data.valid_until, is_active: true } : prev);
+    setStatus(prev => prev ? { ...prev, valid_until: renewedUntil, is_active: true } : prev);
   };
 
   // ── Deactivate ──────────────────────────────────────────────────────────────
   const deactivate = async () => {
     if (!token) return;
     setDeactivating(true);
-    const { data, error } = await supabase.rpc("supplier_deactivate_licence", { p_token: token });
+
+    let data: SupplierActionResponse | null = null;
+
+    try {
+      data = await callSupplierPortal<SupplierActionResponse>({
+        action: "deactivate",
+        token,
+      });
+    } catch (error) {
+      setDeactivating(false);
+      setRenewError(error instanceof Error ? error.message : "Deactivation failed");
+      setToken(null);
+      return;
+    }
+
     setDeactivating(false);
-    if (error || !data?.success) {
+    if (!data?.success) {
       setRenewError(data?.error ?? "Deactivation failed");
       setToken(null);
       return;
