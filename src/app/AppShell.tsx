@@ -1,5 +1,6 @@
 // src/app/AppShell.tsx
 import { ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/context/ThemeContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -38,17 +39,22 @@ const ENTITY_ICON: Record<string, string> = {
 
 type ClickNavItem = { label: string; icon?: ReactNode; badge?: number; onClick: () => void };
 type ElementNavItem = { label: string; icon?: ReactNode; badge?: number; element: ReactNode };
-type NavItem = ClickNavItem | ElementNavItem;
+type RouteNavItem = { label: string; icon?: ReactNode; badge?: number; path: string };
+type NavItem = ClickNavItem | ElementNavItem | RouteNavItem;
 
 type Props = {
   title: string;
   nav?: ClickNavItem[];
-  navItems?: ElementNavItem[];
+  navItems?: NavItem[];
   children?: ReactNode;
 };
 
 function isElementItem(item: NavItem): item is ElementNavItem {
   return "element" in item;
+}
+
+function isRouteItem(item: NavItem): item is RouteNavItem {
+  return "path" in item;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -428,6 +434,8 @@ function ConfirmDialog({
 export default function AppShell({ title, nav, navItems, children }: Props) {
   const { theme, toggleTheme } = useTheme();
   const { user, profile } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
@@ -479,12 +487,18 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
     return [];
   }, [nav, navItems]);
 
+  const routeDrivenNav = useMemo(
+    () => items.length > 0 && items.every((item) => isRouteItem(item)),
+    [items]
+  );
+
   const navStorageKey = useMemo(() => {
     const path = window.location.pathname || "/";
     return `${NAV_STORAGE_KEY}:${path}:${title.toLowerCase()}`;
   }, [title]);
 
   useLayoutEffect(() => {
+    if (routeDrivenNav) return;
     if (!items.length) return;
 
     // Clear the old global key so dashboards do not inherit each other's last tab.
@@ -497,35 +511,56 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
     if (idx >= 0 && idx !== activeIndex) {
       setActiveIndex(idx);
     }
-  }, [items, activeIndex, navStorageKey]);
+  }, [items, activeIndex, navStorageKey, routeDrivenNav]);
+
+  useEffect(() => {
+    if (!routeDrivenNav || !items.length) return;
+
+    const idx = items.findIndex((item) => {
+      if (!isRouteItem(item)) return false;
+      return location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
+    });
+
+    if (idx >= 0 && idx !== activeIndex) {
+      setActiveIndex(idx);
+    }
+  }, [activeIndex, items, location.pathname, routeDrivenNav]);
 
   const hasProfile = items.length > 0 && items[items.length - 1].label.toLowerCase().includes("profile");
   const baseItems = hasProfile ? items.slice(0, -1) : items;
   const isProfileActive = hasProfile && activeIndex === items.length - 1;
 
   const go = (i: number, pushHistory = true) => {
-  setActiveIndex(i);
-  setSidebarOpen(false);
+    setActiveIndex(i);
+    setSidebarOpen(false);
 
-  const item = items[i];
-  const label = item?.label ?? "";
+    const item = items[i];
+    const label = item?.label ?? "";
 
-  if (label) {
-    writeStoredNavLabel(navStorageKey, label);
-  }
+    if (label) {
+      writeStoredNavLabel(navStorageKey, label);
+    }
 
-  if (item && !isElementItem(item)) item.onClick();
+    if (!item) return;
 
-  if (pushHistory) {
-    window.history.pushState(
-      { navIndex: i, navLabel: label },
-      "",
-      window.location.pathname
-    );
-  }
-};
+    if (isRouteItem(item)) {
+      navigate(item.path);
+      return;
+    }
+
+    if (!isElementItem(item)) item.onClick();
+
+    if (pushHistory) {
+      window.history.pushState(
+        { navIndex: i, navLabel: label },
+        "",
+        window.location.pathname
+      );
+    }
+  };
 
   useEffect(() => {
+  if (routeDrivenNav) return;
   const onPop = (e: PopStateEvent) => {
     const idx = e.state?.navIndex;
     const label = e.state?.navLabel;
@@ -551,7 +586,7 @@ export default function AppShell({ title, nav, navItems, children }: Props) {
   );
 
   return () => window.removeEventListener("popstate", onPop);
-}, [items, activeIndex]);
+}, [items, activeIndex, routeDrivenNav]);
 
   useEffect(() => {
     const onNavigate = (e: Event) => {
@@ -1097,7 +1132,7 @@ const handleSignOut = async () => {
           <div id="page-scroll" style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
             <div className="p-4 sm:p-6 lg:p-8 xl:p-10 max-w-7xl mx-auto w-full">
               <ErrorBoundary>
-                {activeItem && isElementItem(activeItem) ? activeItem.element : children}
+                {routeDrivenNav ? children : activeItem && isElementItem(activeItem) ? activeItem.element : children}
               </ErrorBoundary>
             </div>
           </div>

@@ -1,62 +1,28 @@
-// src/layouts/TransportLayout.tsx
+import { Outlet } from "react-router-dom";
 import AppShell from "../app/AppShell";
-import ScheduleManager from "../modules/shifts/pages/ScheduleManager";
-import ShiftAdmin from "../modules/shifts/pages/ShiftAdmin";
-import IncidentBoard from "../modules/incidents/pages/IncidentBoard";
-import FuelRecordQueue from "../modules/fuel/pages/FuelRecordQueue";
-import CreateFuelRequest from "../modules/fuel/pages/CreateFuelRequest";
-import MyFuelRequests from "../modules/fuel/pages/MyFuelRequests";
-import VehicleManagement from "../modules/vehicles/pages/VehicleManagement";
-import DriverManagement from "../modules/drivers/pages/DriverManagement";
-import DriverLeaveDashboard from "../modules/drivers/pages/DriverLeaveDashboard";
-import MileageLog from "../modules/fleet/pages/MileageLog";
-import ReportsDashboard from "../modules/reports/pages/ReportsDashboard";
-import AllAssignmentsBoard from "@/modules/news/pages/AllAssignmentsBoard";
-import ProfilePage from "@/pages/profile/ProfilePage";
-import TripsWorkspace from "@/modules/dispatch/pages/TripsWorkspace";
-import MaintenanceWorkspace from "@/modules/maintenance/pages/MaintenanceWorkspace";
 
 export default function TransportLayout() {
   return (
     <AppShell
       title="Transport"
       navItems={[
-  // ── Operations ──────────────
-  { label: "Trips", element: <TripsWorkspace /> },
-  { label: "Assignments", element: <AllAssignmentsBoard /> },
-
-  // ── Scheduling ──────────────
-  { label: "Driver Schedule", element: <ScheduleManager /> },
-  { label: "Shift Overrides", element: <ShiftAdmin /> },
-
-  // ── Maintenance ─────────────
-  { label: "Maintenance", element: <MaintenanceWorkspace /> },
-  { label: "Incidents", element: <IncidentBoard /> },
-
-  // ── Fuel ────────────────────
-  { label: "Record Fuel", element: <FuelRecordQueue /> },
-  {
-    label: "Fuel Request",
-    element: (
-      <div className="space-y-6">
-        <CreateFuelRequest />
-        <MyFuelRequests />
-      </div>
-    ),
-  },
-
-  // ── Fleet ───────────────────
-  { label: "Vehicles", element: <VehicleManagement /> },
-  { label: "Mileage Log", element: <MileageLog /> },
-  { label: "Drivers", element: <DriverManagement /> },
-  { label: "Leave", element: <DriverLeaveDashboard /> },
-
-  // ── Insights ────────────────
-  { label: "Reports", element: <ReportsDashboard /> },
-
-  // ── Account ────────────────
-  { label: "Profile", element: <ProfilePage /> },
-]}
-    />
+        { label: "Trips", path: "/dashboard/transport/trips" },
+        { label: "Assignments", path: "/dashboard/transport/assignments" },
+        { label: "Driver Schedule", path: "/dashboard/transport/driver-schedule" },
+        { label: "Shift Overrides", path: "/dashboard/transport/shift-overrides" },
+        { label: "Maintenance", path: "/dashboard/transport/maintenance" },
+        { label: "Incidents", path: "/dashboard/transport/incidents" },
+        { label: "Record Fuel", path: "/dashboard/transport/record-fuel" },
+        { label: "Fuel Request", path: "/dashboard/transport/fuel-request" },
+        { label: "Vehicles", path: "/dashboard/transport/vehicles" },
+        { label: "Mileage Log", path: "/dashboard/transport/mileage-log" },
+        { label: "Drivers", path: "/dashboard/transport/drivers" },
+        { label: "Leave", path: "/dashboard/transport/leave" },
+        { label: "Reports", path: "/dashboard/transport/reports" },
+        { label: "Profile", path: "/dashboard/transport/profile" },
+      ]}
+    >
+      <Outlet />
+    </AppShell>
   );
 }
