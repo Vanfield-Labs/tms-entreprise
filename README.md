@@ -1,213 +1,305 @@
-# TMS Frontend v2.0
+# TMS Entreprise
 
-**Transport Management System** — Internal-use frontend built on React + Vite + TypeScript + Supabase.
+Transport Management System for internal fleet operations, approvals, dispatch, maintenance, fuel workflows, reporting, and role-based staff access.
 
-## Quick Start
+## Overview
+
+TMS Entreprise is a React + Vite + TypeScript frontend backed by Supabase Auth, Postgres, RPCs, Edge Functions, and realtime updates.
+
+The system is designed for:
+
+- transport supervisors managing trips, drivers, shifts, fuel, and maintenance
+- corporate and finance approvers handling controlled workflow approvals
+- HR handling leave workflows
+- staff and unit heads requesting transport services
+- drivers viewing assignments, shifts, leave, and trip activity
+- administrators managing users, security-sensitive actions, and overall operations
+
+## Core Capabilities
+
+- role-based dashboards and redirects
+- protected routing with MFA support for privileged roles
+- booking creation, approval, dispatch, trip completion, and close-out
+- maintenance reporting, finance review, corporate review, and execution workflow
+- fuel request submission, review, and recording
+- driver leave self-service plus supervisor, corporate, and HR approval flow
+- staff, unit, camera, and news assignment workflows
+- vehicle and driver management
+- KPI and report dashboards
+- realtime notifications and push notification support
+- admin user creation and password reset through Supabase Edge Functions
+- supplier portal for licence status, renewal, and deactivation
+
+## Tech Stack
+
+- React 18
+- TypeScript
+- Vite
+- React Router 6
+- Supabase JavaScript client
+- Supabase Auth, Postgres, RLS, RPCs, Edge Functions, Realtime
+- Tailwind CSS plus custom design system classes
+
+## App Structure
+
+### Routing and Shell
+
+- `src/app/routes.tsx`
+  Main route map for login, MFA, role dashboards, and nested dashboard routes
+- `src/app/AppShell.tsx`
+  Shared shell for sidebar navigation, topbar, notifications, and layout chrome
+- `src/app/ProtectedLayout.tsx`
+  Authentication and MFA route guard
+- `src/app/RoleRedirect.tsx`
+  Role-aware default dashboard redirect
+
+### Layouts
+
+- `src/layouts/AdminLayout.tsx`
+- `src/layouts/CorporateLayout.tsx`
+- `src/layouts/FinanceLayout.tsx`
+- `src/layouts/TransportLayout.tsx`
+- `src/layouts/DriverLayout.tsx`
+- `src/layouts/HrLayout.tsx`
+- `src/layouts/DepartmentLayout.tsx`
+- `src/layouts/CameraLayout.tsx`
+- `src/layouts/JoyNewsLayout.tsx`
+- `src/layouts/AdomTvLayout.tsx`
+- `src/layouts/JoyBusinessLayout.tsx`
+
+### Feature Modules
+
+- `src/modules/bookings`
+  Booking creation, detail view, amendments, approvals, dispatch, and close trips
+- `src/modules/approvals`
+  Approval queues and workflow actions
+- `src/modules/dispatch`
+  Dispatch and trips workspace
+- `src/modules/maintenance`
+  Reporting, approval, execution, history, and workspace views
+- `src/modules/fuel`
+  Fuel request submission, review, record queue, and history
+- `src/modules/drivers`
+  Driver management, leave dashboard, and leave self-service
+- `src/modules/fleet`
+  Mileage and fleet-related operational pages
+- `src/modules/vehicles`
+  Vehicle management
+- `src/modules/shifts`
+  Schedule generation, shift overrides, and admin shift tools
+- `src/modules/incidents`
+  Incident boards and reporting views
+- `src/modules/news`
+  Assignments and newsroom transport workflow
+- `src/modules/reports`
+  Reports dashboard, KPI dashboard, audit-style operational reporting
+- `src/modules/users`
+  User requests, admin user management, and user service actions
+- `src/modules/staff`
+  Staff dashboard
+- `src/modules/unithead`
+  Unit head dashboard
+- `src/modules/trips`
+  Driver trip activity
+- `src/modules/divisions`
+  Division-level operational pages
+
+## Roles and Dashboard Access
+
+Primary role routing currently supports:
+
+- `admin`
+- `corporate_approver`
+- `finance_manager`
+- `transport_supervisor`
+- `driver`
+- `unit_head`
+- `staff`
+
+Unit-aware routing also supports dedicated dashboards for:
+
+- HR
+- Camera
+- Joy News
+- Adom TV
+- Joy Business
+
+## Transport Dashboard URLs
+
+The transport dashboard now supports route-based section URLs, for example:
+
+- `/dashboard/transport/trips`
+- `/dashboard/transport/assignments`
+- `/dashboard/transport/driver-schedule`
+- `/dashboard/transport/shift-overrides`
+- `/dashboard/transport/maintenance`
+- `/dashboard/transport/incidents`
+- `/dashboard/transport/record-fuel`
+- `/dashboard/transport/fuel-request`
+- `/dashboard/transport/vehicles`
+- `/dashboard/transport/mileage-log`
+- `/dashboard/transport/drivers`
+- `/dashboard/transport/leave`
+- `/dashboard/transport/reports`
+- `/dashboard/transport/profile`
+
+This makes direct page testing and bookmarking easier for the transport dashboard.
+
+## Authentication and Security
+
+The app uses Supabase Auth with client-side role-aware routing plus database-side RLS and RPC authorization.
+
+Recent hardening includes:
+
+- stricter notification access policies
+- tighter `drivers` table permissions
+- restricted execute access on sensitive RPCs
+- JWT verification enabled for privileged Edge Functions
+- supplier portal moved behind a dedicated hardened Edge Function
+- supplier portal request logging and throttling support
+
+## Supabase
+
+### Local Config Files
+
+- `src/lib/supabase.ts`
+  Frontend Supabase client
+- `supabase/config.toml`
+  Edge Function configuration
+- `supabase/migrations`
+  Database migrations
+- `supabase/functions`
+  Supabase Edge Functions
+
+### Edge Functions
+
+- `create-user`
+  Admin-only user creation using service role
+- `reset-password`
+  Admin-only password reset using service role
+- `notify-and-push`
+  Combined notification insert and push dispatch helper
+- `send-push-notification`
+  FCM push sender using Firebase service account secret
+- `supplier-portal`
+  Hardened public function for supplier PIN verification, licence status, renewal, and deactivation
+
+### Recent Migrations
+
+- `20260404_*`
+  Booking, maintenance, and HR leave workflow changes
+- `20260405_driver_leave_self_service.sql`
+  Driver leave self-service support
+- `20260406_security_hardening.sql`
+  Notification and driver permission hardening
+- `20260406_security_rpc_grants.sql`
+  Sensitive RPC execute grant tightening
+- `20260406_supplier_portal_hardening.sql`
+  Supplier portal logging and service-role-only database access model
+- `20260406_supplier_portal_rpc_grants.sql`
+  Removal of browser-role execute access from supplier RPCs
+
+## Push Notifications
+
+Push notifications are implemented with:
+
+- Firebase Web Messaging config exposed through `VITE_FIREBASE_*` frontend variables
+- browser service worker at `public/sw.js`
+- `push_subscriptions` table in Supabase
+- `send-push-notification` Edge Function for FCM delivery
+
+Required frontend environment variables include:
+
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_STORAGE_BUCKET`
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+- `VITE_FIREBASE_APP_ID`
+- `VITE_FIREBASE_VAPID_KEY`
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+
+Important:
+
+- `VITE_*` variables are intentionally exposed to the frontend
+- server secrets like service role keys must never use `VITE_*`
+
+## Local Development
+
+### Requirements
+
+- Node.js
+- npm
+- Supabase project credentials
+
+### Install
 
 ```bash
 npm install
-cp .env.example .env       # fill in your Supabase credentials
+```
+
+### Run in development
+
+```bash
 npm run dev
 ```
 
----
+### Production build
 
-## Architecture
-
-### Tech Stack
-- **React 18** + **TypeScript** + **Vite**
-- **Supabase** (Auth + Postgres + Storage + RPC)
-- **Tailwind CSS** (utility layer) + **IBM Plex** fonts
-- Custom dark design system (`src/index.css`)
-
-### Roles & Layouts
-
-| Role | Layout | Access |
-|------|--------|--------|
-| `admin` | AdminLayout | Full system: fleet, reports, audit, bookings, users |
-| `corporate_approver` | CorporateLayout | Booking + fuel approvals, history, reports |
-| `transport_supervisor` | TransportLayout | Dispatch, close trips, maintenance, fleet, fuel recording, shifts |
-| `driver` | DriverLayout | My trips, my shifts, fuel requests |
-| `unit_head` / `staff` | DepartmentLayout | Create/view bookings, fuel requests, report maintenance, request users |
-
----
-
-## Feature Modules
-
-### ✅ Module: Bookings
-- `CreateBookingV2` — Full booking form with visibility/unit sharing
-- `BookingsTable` — Searchable/filterable booking list
-- `MyBookings` — User's own requests
-- `CloseTrips` — Close completed trips
-
-### ✅ Module: Approvals
-- `ApprovalQueue` — Corporate review queue, approve/reject with comments
-
-### ✅ Module: Dispatch
-- `DispatchBoard` — Assign vehicle + driver to approved bookings
-
-### ✅ Module: Maintenance
-- `MaintenanceBoard` — Full workflow: reported → approved → in_progress → completed → closed
-- `ReportMaintenance` — Staff/driver issue reporting
-
-### ✅ Module: Fuel (COMPLETE)
-- `CreateFuelRequest` — Submit fuel requests (dept + driver)
-- `FuelRequests` — My request history
-- `FuelReviewQueue` — Corporate approval queue
-- `FuelRecordingQueue` — Transport records actual dispensed fuel (approved → recorded)
-- `FuelHistory` — Full audit trail of all requests
-
-### ✅ Module: Fleet (NEW — Module 15)
-- `VehiclesPage` — CRUD: add/edit/activate/deactivate vehicles. Insurance + roadworthy expiry alerts (⚠ expired, ⏰ within 30 days)
-- `DriversPage` — CRUD: add/edit/activate/deactivate drivers. License expiry tracking. User account linking.
-
-### ✅ Module: Shifts
-- `MyShifts` — Upcoming + past shift cards for driver
-- `ShiftAdmin` — Override shifts with reason logging
-
-### ✅ Module: Trips
-- `DriverTrips` — Driver starts/completes assigned trips
-
-### ✅ Module: Reports
-- `ReportsDashboard` — KPI grid + booking sparkline + status breakdown + fuel/maintenance tables + vehicle utilization grid
-- `AuditLogs` — Searchable, expandable JSON metadata log viewer
-
-### ✅ Module: Users
-- `AdminUserRequests` — Approve/reject with Auth UUID + position title
-- `NewUserRequest` — Division/unit/role-aware request form
-
----
-
-## File Structure
-
-```
-src/
-├── app/
-│   ├── AppShell.tsx          ← Sidebar layout (navGroups, navItems, nav)
-│   └── routes.tsx
-├── hooks/
-│   └── useAuth.ts
-├── layouts/
-│   ├── AdminLayout.tsx
-│   ├── CorporateLayout.tsx
-│   ├── TransportLayout.tsx
-│   ├── DepartmentLayout.tsx
-│   └── DriverLayout.tsx
-├── lib/
-│   ├── supabase.ts
-│   ├── types.ts
-│   └── utils.ts              ← fmtDate, fmtDateTime, fmtMoney, statusBadge
-├── modules/
-│   ├── approvals/
-│   ├── bookings/
-│   ├── dispatch/
-│   ├── documents/
-│   ├── fleet/               ← NEW (Module 15)
-│   │   ├── pages/
-│   │   │   ├── VehiclesPage.tsx
-│   │   │   └── DriversPage.tsx
-│   │   └── services/
-│   │       └── fleet.service.ts
-│   ├── fuel/                ← COMPLETED
-│   │   ├── pages/
-│   │   │   ├── CreateFuelRequest.tsx
-│   │   │   ├── FuelRequests.tsx
-│   │   │   ├── FuelReviewQueue.tsx
-│   │   │   ├── FuelRecordingQueue.tsx  ← NEW
-│   │   │   └── FuelHistory.tsx          ← NEW
-│   │   └── services/
-│   │       └── fuel.service.ts
-│   ├── maintenance/
-│   ├── reports/
-│   ├── shifts/
-│   ├── trips/
-│   └── users/
-├── pages/
-│   ├── auth/Login.tsx
-│   └── dashboard/DashboardRouter.tsx
-└── index.css                ← Full IBM Plex dark design system
+```bash
+npm run build
 ```
 
----
+## Environment Variables
 
-## Design System
+Frontend variables are read through `import.meta.env`.
 
-All UI uses the custom CSS design system in `src/index.css`:
+Common frontend variables:
 
-```css
-/* Status badges */
-.badge .badge-{status}      /* draft, submitted, approved, rejected, dispatched, etc. */
-
-/* Form elements */
-.tms-input .tms-select .tms-textarea
-
-/* Buttons */
-.btn .btn-primary .btn-ghost .btn-success .btn-danger .btn-amber .btn-sm .btn-lg
-
-/* Cards */
-.card .card-header .card-title .card-body
-
-/* KPI stats */
-.stat-card .stat-label .stat-value
-
-/* Tables */
-.tms-table
-
-/* Layout */
-.page-header .page-title .form-label
-.grid-2 .grid-3 .grid-4
-
-/* Alerts */
-.alert .alert-error .alert-success .alert-info
+```env
+VITE_SUPABASE_URL=
+VITE_SUPABASE_ANON_KEY=
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+VITE_FIREBASE_VAPID_KEY=
 ```
 
----
+Server-side Supabase secrets should stay outside the frontend and are typically configured in Supabase:
 
-## Supabase RPCs Required
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_ACCESS_TOKEN`
+- `FIREBASE_SERVICE_ACCOUNT_JSON`
 
-All state changes use RPC (never direct updates):
+## Deployment Notes
 
-| RPC | Caller |
-|-----|--------|
-| `submit_booking(p_booking_id)` | Department |
-| `approve_booking(p_booking_id, p_action, p_comment)` | Corporate |
-| `dispatch_booking(p_booking_id, p_vehicle_id, p_driver_id, p_notes)` | Transport |
-| `update_trip_status(p_booking_id, p_new_status)` | Driver |
-| `close_booking(p_booking_id)` | Transport |
-| `update_maintenance_status(p_request_id, p_new_status)` | Transport |
-| `confirm_maintenance_completion(p_request_id, p_notes)` | Transport |
-| `create_fuel_request_draft(...)` | Any |
-| `submit_fuel_request(p_fuel_request_id, p_meta)` | Any |
-| `corporate_review_fuel_request(p_fuel_request_id, p_action, p_notes, p_meta)` | Corporate |
-| `record_fuel_request(p_fuel_request_id, p_actual_cost, p_notes, p_meta)` | Transport |
-| `override_shift(p_driver_id, p_shift_date, p_new_shift_code, p_reason)` | Transport |
-| `admin_approve_user_request(...)` | Admin |
-| `admin_reject_user_request(...)` | Admin |
-| `register_document(...)` | Any |
-| `report_kpis()` | Admin/Transport |
+- frontend can be deployed on Vercel
+- Supabase handles auth, database, realtime, and edge functions
+- route protection means external page-speed tools may still hit login unless testing authenticated flows or direct public pages
 
----
+## Repository Workflow
 
-## Fleet Management DB Schema Needed
+Current preferred workflow:
 
-The new `VehiclesPage` and `DriversPage` expect these columns on top of the existing schema:
+- do feature work on `new-feature`
+- validate changes
+- push `new-feature`
+- merge into `main` when approved
 
-```sql
--- vehicles table additions
-ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS make text;
-ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS model text;
-ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS year integer;
-ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS color text;
-ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS capacity integer;
-ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS vin text;
-ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS insurance_expiry date;
-ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS roadworthy_expiry date;
-ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS notes text;
+## Status
 
--- drivers table additions
-ALTER TABLE drivers ADD COLUMN IF NOT EXISTS license_class text;
-ALTER TABLE drivers ADD COLUMN IF NOT EXISTS phone text;
-ALTER TABLE drivers ADD COLUMN IF NOT EXISTS notes text;
-```
+The project includes live work in:
 
-The existing `plate_number`, `status`, `license_number`, `employment_status`, and `user_id` columns are assumed to already exist.
+- operational dashboards
+- workflow routing improvements
+- supplier portal hardening
+- Supabase access hardening
+- route-based transport dashboard URLs
+
+## License
+
+Internal/private project for TMS Entreprise operations.
