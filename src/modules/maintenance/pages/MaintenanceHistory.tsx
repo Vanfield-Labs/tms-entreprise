@@ -18,22 +18,47 @@ type Request = {
   notes?: string;
 };
 
-const STATUS_STYLES: Record<string, string> = {
-  reported: "bg-amber-100 text-amber-700",
-  finance_pending: "bg-sky-100 text-sky-700",
-  finance_rejected: "bg-rose-100 text-rose-700",
-  approved: "bg-blue-100 text-blue-700",
-  in_progress: "bg-violet-100 text-violet-700",
-  completed: "bg-emerald-100 text-emerald-700",
-  closed: "bg-gray-200 text-gray-600",
-  rejected: "bg-red-100 text-red-700",
+const STATUS_STYLES: Record<string, Record<string, string>> = {
+  reported: { background: "var(--amber-dim)", color: "var(--amber)" },
+  finance_pending: {
+    background: "color-mix(in srgb, var(--accent-dim) 65%, var(--surface))",
+    color: "var(--accent)",
+  },
+  finance_rejected: { background: "var(--red-dim)", color: "var(--red)" },
+  approved: {
+    background: "color-mix(in srgb, var(--accent-dim) 80%, var(--surface))",
+    color: "var(--accent)",
+  },
+  in_progress: {
+    background: "color-mix(in srgb, var(--purple) 16%, var(--surface))",
+    color: "var(--purple)",
+  },
+  completed: { background: "var(--green-dim)", color: "var(--green)" },
+  closed: { background: "var(--surface-2)", color: "var(--text-muted)" },
+  rejected: { background: "var(--red-dim)", color: "var(--red)" },
 };
 
-const PRIORITY_STYLES: Record<string, string> = {
-  low: "bg-green-50 text-green-600 border-green-200",
-  medium: "bg-amber-50 text-amber-600 border-amber-200",
-  high: "bg-orange-50 text-orange-600 border-orange-200",
-  critical: "bg-red-50 text-red-600 border-red-200",
+const PRIORITY_STYLES: Record<string, Record<string, string>> = {
+  low: {
+    background: "color-mix(in srgb, var(--green-dim) 70%, var(--surface))",
+    color: "var(--green)",
+    borderColor: "color-mix(in srgb, var(--green) 30%, var(--border))",
+  },
+  medium: {
+    background: "var(--amber-dim)",
+    color: "var(--amber)",
+    borderColor: "color-mix(in srgb, var(--amber) 35%, var(--border))",
+  },
+  high: {
+    background: "color-mix(in srgb, var(--amber-dim) 85%, var(--surface))",
+    color: "var(--amber)",
+    borderColor: "color-mix(in srgb, var(--amber) 45%, var(--border))",
+  },
+  critical: {
+    background: "var(--red-dim)",
+    color: "var(--red)",
+    borderColor: "color-mix(in srgb, var(--red) 35%, var(--border))",
+  },
 };
 
 export default function MaintenanceHistory() {
@@ -92,14 +117,18 @@ export default function MaintenanceHistory() {
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Total", value: stats.total, color: "text-gray-900" },
-          { label: "Open", value: stats.open, color: "text-amber-600" },
-          { label: "Closed", value: stats.closed, color: "text-emerald-600" },
-          { label: "Critical", value: stats.critical, color: "text-red-600" },
+          { label: "Total", value: stats.total, color: "var(--text)" },
+          { label: "Open", value: stats.open, color: "var(--amber)" },
+          { label: "Closed", value: stats.closed, color: "var(--green)" },
+          { label: "Critical", value: stats.critical, color: "var(--red)" },
         ].map((s) => (
-          <div key={s.label} className="bg-white rounded-2xl border border-gray-200 px-4 py-3 text-center">
-            <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
-            <div className="text-xs text-gray-400 mt-0.5">{s.label}</div>
+          <div
+            key={s.label}
+            className="rounded-2xl border px-4 py-3 text-center"
+            style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+          >
+            <div className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</div>
+            <div className="text-xs mt-0.5" style={{ color: "var(--text-dim)" }}>{s.label}</div>
           </div>
         ))}
       </div>
@@ -137,11 +166,11 @@ export default function MaintenanceHistory() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <span className="text-xs text-gray-400 font-mono ml-auto">{filtered.length} records</span>
+        <span className="text-xs font-mono ml-auto" style={{ color: "var(--text-dim)" }}>{filtered.length} records</span>
       </div>
 
       {filtered.length === 0 ? (
-        <div className="text-center py-16 text-gray-400">
+        <div className="text-center py-16" style={{ color: "var(--text-dim)" }}>
           <div className="text-3xl mb-2">🔧</div>
           <p className="text-sm">No maintenance records found</p>
         </div>
@@ -150,59 +179,101 @@ export default function MaintenanceHistory() {
           {filtered.map((r) => {
             const vehicle = vehicleMap[r.vehicle_id];
             const isOpen = expanded === r.id;
+            const priorityStyle = PRIORITY_STYLES[r.priority] ?? {
+              background: "var(--surface-2)",
+              color: "var(--text-muted)",
+              borderColor: "var(--border)",
+            };
+            const statusStyle = STATUS_STYLES[r.status] ?? {
+              background: "var(--surface-2)",
+              color: "var(--text-muted)",
+            };
             return (
-              <div key={r.id} className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+              <div
+                key={r.id}
+                className="rounded-2xl border overflow-hidden"
+                style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+              >
                 <div
-                  className="px-4 py-3 flex items-start justify-between gap-2 cursor-pointer hover:bg-gray-50 transition-colors"
+                  className="px-4 py-3 flex items-start justify-between gap-2 cursor-pointer transition-colors"
+                  style={{ background: isOpen ? "color-mix(in srgb, var(--surface-2) 85%, transparent)" : "transparent" }}
                   onClick={() => setExpanded(isOpen ? null : r.id)}
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-sm text-gray-900">{r.issue_type || "Issue"}</span>
+                      <span className="font-semibold text-sm" style={{ color: "var(--text)" }}>{r.issue_type || "Issue"}</span>
                       {vehicle && (
-                        <span className="font-mono text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-md">
+                        <span
+                          className="font-mono text-xs px-1.5 py-0.5 rounded-md"
+                          style={{ color: "var(--text-dim)", background: "var(--surface-2)" }}
+                        >
                           {vehicle.plate_number}
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-gray-500 mt-0.5 truncate">{r.description}</p>
+                    <p className="text-xs mt-0.5 truncate" style={{ color: "var(--text-muted)" }}>{r.description}</p>
                   </div>
                   <div className="shrink-0 flex items-center gap-2">
-                    <span className={`inline-flex px-2 py-0.5 rounded-md border text-xs font-medium capitalize ${PRIORITY_STYLES[r.priority] ?? "bg-gray-50 border-gray-200 text-gray-500"}`}>
+                    <span
+                      className="inline-flex px-2 py-0.5 rounded-md border text-xs font-medium capitalize"
+                      style={priorityStyle}
+                    >
                       {r.priority}
                     </span>
-                    <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium capitalize ${STATUS_STYLES[r.status] ?? "bg-gray-100 text-gray-600"}`}>
+                    <span
+                      className="inline-flex px-2.5 py-1 rounded-full text-xs font-medium capitalize"
+                      style={statusStyle}
+                    >
                       {r.status.replace("_", " ")}
                     </span>
-                    <svg className={`w-4 h-4 text-gray-400 transition-transform shrink-0 ${isOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg
+                      className={`w-4 h-4 transition-transform shrink-0 ${isOpen ? "rotate-180" : ""}`}
+                      style={{ color: "var(--text-dim)" }}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/>
                     </svg>
                   </div>
                 </div>
                 {isOpen && (
-                  <div className="px-4 pb-4 border-t border-gray-100 bg-gray-50/50 space-y-2 pt-3">
+                  <div
+                    className="px-4 pb-4 border-t space-y-2 pt-3"
+                    style={{ borderColor: "var(--border)", background: "color-mix(in srgb, var(--surface-2) 70%, transparent)" }}
+                  >
                     <div className="grid grid-cols-2 gap-3 text-xs">
                       <div>
-                        <span className="text-gray-400 block">Reported</span>
-                        <span className="font-medium text-gray-700">{fmtDateTime(r.created_at)}</span>
+                        <span className="block" style={{ color: "var(--text-dim)" }}>Reported</span>
+                        <span className="font-medium" style={{ color: "var(--text)" }}>{fmtDateTime(r.created_at)}</span>
                       </div>
                       {r.closed_at && (
                         <div>
-                          <span className="text-gray-400 block">Closed</span>
-                          <span className="font-medium text-gray-700">{fmtDateTime(r.closed_at)}</span>
+                          <span className="block" style={{ color: "var(--text-dim)" }}>Closed</span>
+                          <span className="font-medium" style={{ color: "var(--text)" }}>{fmtDateTime(r.closed_at)}</span>
                         </div>
                       )}
                     </div>
                     {r.description && (
                       <div className="text-xs">
-                        <span className="text-gray-400 block mb-1">Full Description</span>
-                        <p className="text-gray-700 bg-white border border-gray-200 rounded-xl px-3 py-2 leading-relaxed">{r.description}</p>
+                        <span className="block mb-1" style={{ color: "var(--text-dim)" }}>Full Description</span>
+                        <p
+                          className="rounded-xl px-3 py-2 leading-relaxed"
+                          style={{ color: "var(--text)", background: "var(--surface)", border: "1px solid var(--border)" }}
+                        >
+                          {r.description}
+                        </p>
                       </div>
                     )}
                     {r.notes && (
                       <div className="text-xs">
-                        <span className="text-gray-400 block mb-1">Resolution Notes</span>
-                        <p className="text-gray-700 bg-white border border-gray-200 rounded-xl px-3 py-2 leading-relaxed">{r.notes}</p>
+                        <span className="block mb-1" style={{ color: "var(--text-dim)" }}>Resolution Notes</span>
+                        <p
+                          className="rounded-xl px-3 py-2 leading-relaxed"
+                          style={{ color: "var(--text)", background: "var(--surface)", border: "1px solid var(--border)" }}
+                        >
+                          {r.notes}
+                        </p>
                       </div>
                     )}
                   </div>

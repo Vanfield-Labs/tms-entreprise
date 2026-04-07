@@ -1,15 +1,16 @@
+import { Outlet } from "react-router-dom";
 import AppShell from "../app/AppShell";
-import DriverLeaveDashboard from "@/modules/drivers/pages/DriverLeaveDashboard";
-import ProfilePage from "@/pages/profile/ProfilePage";
 
 export default function HrLayout() {
   return (
     <AppShell
       title="HR"
       navItems={[
-        { label: "Leave", element: <DriverLeaveDashboard /> },
-        { label: "Profile", element: <ProfilePage /> },
+        { label: "Leave", path: "/dashboard/hr/leave" },
+        { label: "Profile", path: "/dashboard/hr/profile" },
       ]}
-    />
+    >
+      <Outlet />
+    </AppShell>
   );
 }

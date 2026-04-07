@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { TwoFactorSetup } from "@/components/TwoFactorSetup";
+import { logSecurityEvent } from "@/services/securityLog.service";
 
 type Division = { id: string; name: string };
 type Unit      = { id: string; name: string; division_id: string };
@@ -93,6 +94,11 @@ export default function ProfilePage() {
     try {
       const { error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) { setPwError(error.message); return; }
+      await logSecurityEvent({
+        event: "password_changed",
+        userId: user?.id ?? null,
+        email: user?.email ?? null,
+      });
       setPwSuccess(true);
       setNewPassword(""); setConfirmPassword("");
       setTimeout(() => setPwSuccess(false), 3000);

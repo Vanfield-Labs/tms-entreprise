@@ -1,22 +1,18 @@
-// src/layouts/AdomTvLayout.tsx
+import { Outlet } from "react-router-dom";
 import AppShell from "../app/AppShell";
-import NewsUnitDashboard from "@/modules/news/pages/NewsUnitDashboard";
-import CreateBookingV2 from "@/modules/bookings/pages/CreateBookingV2";
-import MyBookings from "@/modules/bookings/pages/MyBookings";
-import ProfilePage from "@/pages/profile/ProfilePage";
-
-const ADOM_NEWS_ID = "61ef9897-c284-43fe-a60d-7a22fa4e1a11";
 
 export default function AdomTvLayout() {
   return (
     <AppShell
       title="Adom News"
       navItems={[
-        { label: "Assignments",  element: <NewsUnitDashboard unitId={ADOM_NEWS_ID} unitName="Adom News" /> },
-        { label: "New Booking",  element: <CreateBookingV2 /> },
-        { label: "My Bookings",  element: <MyBookings /> },
-        { label: "Profile",      element: <ProfilePage /> },
+        { label: "Assignments", path: "/dashboard/adomtv/assignments" },
+        { label: "New Booking", path: "/dashboard/adomtv/new-booking" },
+        { label: "My Bookings", path: "/dashboard/adomtv/my-bookings" },
+        { label: "Profile", path: "/dashboard/adomtv/profile" },
       ]}
-    />
+    >
+      <Outlet />
+    </AppShell>
   );
 }

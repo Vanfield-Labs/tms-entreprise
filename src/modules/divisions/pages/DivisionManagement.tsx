@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import {
   PageSpinner, EmptyState, Card, SearchInput,
-  Field, Input, Select, Btn, Modal, Alert, TabBar,
+  Field, Input, Select, Btn, Modal, Alert, TabBar, CtxMenu, ConfirmDialog,
 } from "@/components/TmsUI";
 import { fmtDate } from "@/lib/utils";
 
@@ -16,58 +16,6 @@ const TABS: { value: Tab; label: string }[] = [
   { value: "units",     label: "Units"     },
 ];
 
-// ─── Mobile context menu ──────────────────────────────────────────────────────
-function CtxMenu({ items }: { items: { label: string; icon: string; cls?: string; onClick: () => void }[] }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const close = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, []);
-
-  return (
-    <div className="ctx-menu-wrap" ref={ref}>
-      <button className="ctx-menu-trigger" onClick={() => setOpen(o => !o)} aria-label="Actions">···</button>
-      {open && (
-        <div className="ctx-menu">
-          {items.map((item, i) => (
-            <button
-              key={i}
-              className={`ctx-menu-item ${item.cls ?? ""}`}
-              onClick={() => { item.onClick(); setOpen(false); }}
-            >
-              <span>{item.icon}</span><span>{item.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Confirm dialog ───────────────────────────────────────────────────────────
-function ConfirmDialog({
-  open, title, message, confirmLabel = "Delete", onConfirm, onCancel, acting = false,
-}: {
-  open: boolean; title: string; message: string; confirmLabel?: string;
-  onConfirm: () => void; onCancel: () => void; acting?: boolean;
-}) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-2xl p-6 w-full max-w-sm shadow-2xl">
-        <h3 className="text-base font-semibold text-[color:var(--text)] mb-2">{title}</h3>
-        <p className="text-sm text-[color:var(--text-muted)] mb-5">{message}</p>
-        <div className="flex justify-end gap-3">
-          <Btn variant="ghost" onClick={onCancel} disabled={acting}>Cancel</Btn>
-          <Btn variant="danger" onClick={onConfirm} loading={acting}>{confirmLabel}</Btn>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function DivisionManagement() {

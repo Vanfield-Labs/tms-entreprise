@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth, consumeInactivityFlag } from "@/hooks/useAuth";
+import { logSecurityEvent } from "@/services/securityLog.service";
 
 const MAX_ATTEMPTS    = 5;
 const COOLDOWN_SECS   = 30;
@@ -62,6 +63,10 @@ export default function Login() {
     const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
 
     if (authError) {
+      void logSecurityEvent({
+        event: "login_failed",
+        email: email.trim().toLowerCase(),
+      });
       const newAttempts = attempts + 1;
       setAttempts(newAttempts);
       if (newAttempts >= MAX_ATTEMPTS) {
