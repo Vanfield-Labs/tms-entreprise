@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 
 type PermissionState = "default" | "granted" | "denied" | "unsupported";
@@ -7,6 +7,7 @@ interface UsePushNotificationsReturn {
   isSupported: boolean;
   permission: PermissionState;
   isSubscribed: boolean;
+  checkedSubscription: boolean;
   subscribe: () => Promise<boolean>;
   unsubscribe: () => Promise<void>;
 }
@@ -58,6 +59,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
   const [isSubscribed, setIsSubscribed] = useState(
     () => localStorage.getItem("tms-push-subscribed") === "true"
   );
+  const [checkedSubscription, setCheckedSubscription] = useState(!isSupported);
 
   const getDeviceLabel = () => {
     const ua = navigator.userAgent;
@@ -66,6 +68,56 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     if (/Chrome/.test(ua)) return "Chrome Desktop";
     return "Web";
   };
+
+  useEffect(() => {
+    if (!isSupported) return;
+
+    let alive = true;
+
+    const syncSubscriptionState = async () => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!alive) return;
+
+        if (!user) {
+          setIsSubscribed(false);
+          setCheckedSubscription(true);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from("push_subscriptions")
+          .select("user_id")
+          .eq("user_id", user.id)
+          .limit(1);
+
+        if (!alive) return;
+
+        const hasSubscription = !error && Array.isArray(data) && data.length > 0;
+        setIsSubscribed(hasSubscription);
+
+        if (hasSubscription) {
+          localStorage.setItem("tms-push-subscribed", "true");
+        } else {
+          localStorage.removeItem("tms-push-subscribed");
+        }
+      } catch {
+        if (!alive) return;
+        setIsSubscribed(localStorage.getItem("tms-push-subscribed") === "true");
+      } finally {
+        if (alive) setCheckedSubscription(true);
+      }
+    };
+
+    void syncSubscriptionState();
+
+    return () => {
+      alive = false;
+    };
+  }, [isSupported]);
 
   const subscribe = useCallback(async (): Promise<boolean> => {
     if (!isSupported) return false;
@@ -147,6 +199,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     isSupported,
     permission,
     isSubscribed,
+    checkedSubscription,
     subscribe,
     unsubscribe,
   };

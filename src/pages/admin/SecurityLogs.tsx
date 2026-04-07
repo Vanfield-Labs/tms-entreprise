@@ -23,44 +23,149 @@ type Profile = {
 };
 
 const EVENT_STYLE: Record<string, { label: string; color: string; bg: string; icon: string }> = {
-  login_success:    { label: "Login Success",    color: "var(--green)",  bg: "var(--green-dim)",  icon: "✓" },
-  login_failed:     { label: "Login Failed",     color: "var(--red)",    bg: "var(--red-dim)",    icon: "✗" },
-  logout:           { label: "Logout",           color: "var(--text-muted)", bg: "var(--surface-2)", icon: "→" },
-  session_expired:  { label: "Session Expired",  color: "var(--amber)",  bg: "var(--amber-dim)",  icon: "⏱" },
-  password_changed: { label: "Password Changed", color: "var(--accent)", bg: "var(--accent-dim)", icon: "🔑" },
+  login_success: { label: "Login Success", color: "var(--green)", bg: "var(--green-dim)", icon: "OK" },
+  login_failed: { label: "Login Failed", color: "var(--red)", bg: "var(--red-dim)", icon: "X" },
+  logout: { label: "Logout", color: "var(--text-muted)", bg: "var(--surface-2)", icon: "->" },
+  session_expired: { label: "Session Expired", color: "var(--amber)", bg: "var(--amber-dim)", icon: "!" },
+  password_changed: { label: "Password Changed", color: "var(--accent)", bg: "var(--accent-dim)", icon: "KEY" },
 };
 
-const EVENT_FILTERS = ["all", "login_success", "login_failed", "logout", "session_expired", "password_changed"];
+const EVENT_FILTERS = [
+  "all",
+  "login_success",
+  "login_failed",
+  "logout",
+  "session_expired",
+  "password_changed",
+];
+
+function normalizeEvent(event: string | null | undefined) {
+  return (event ?? "").trim().toLowerCase();
+}
+
+function normalizeLogEntry(entry: LogEntry): LogEntry {
+  return {
+    ...entry,
+    event: normalizeEvent(entry.event),
+  };
+}
 
 export default function SecurityLogs() {
-  const [logs,       setLogs]       = useState<LogEntry[]>([]);
-  const [profiles,   setProfiles]   = useState<Profile[]>([]);
-  const [loading,    setLoading]    = useState(true);
-  const [q,          setQ]          = useState("");
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [q, setQ] = useState("");
   const [eventFilter, setEventFilter] = useState("all");
 
   useEffect(() => {
-    (async () => {
-      const [{ data: l }, { data: p }] = await Promise.all([
-        supabase.from("login_audit_log")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(500),
-        supabase.from("profiles")
+    let alive = true;
+
+    const load = async () => {
+      const [{ data: logData, error: logsError }, { data: profileData, error: profilesError }] =
+        await Promise.all([
+          supabase.from("login_audit_log").select("*").order("created_at", { ascending: false }).limit(500),
+          supabase
+            .from("profiles")
+            .select("user_id, full_name, failed_login_count")
+            .gt("failed_login_count", 3),
+        ]);
+
+      if (!alive) return;
+
+      if (logsError || profilesError) {
+        setError(logsError?.message || profilesError?.message || "Could not load security logs");
+      } else {
+        setError(null);
+      }
+
+      setLogs(((logData as LogEntry[]) || []).map(normalizeLogEntry));
+      setProfiles((profileData as Profile[]) || []);
+      setLoading(false);
+    };
+
+    void load();
+
+    const auditChannel = supabase
+      .channel("security-logs:audit")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "login_audit_log" },
+        () => {
+          void load();
+        }
+      )
+      .subscribe();
+
+    const profilesChannel = supabase
+      .channel("security-logs:profiles")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "profiles" },
+        () => {
+          void load();
+        }
+      )
+      .subscribe();
+
+    const intervalId = window.setInterval(() => {
+      void load();
+    }, 15000);
+
+    const reloadWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        void load();
+      }
+    };
+
+    window.addEventListener("focus", reloadWhenVisible);
+    document.addEventListener("visibilitychange", reloadWhenVisible);
+
+    return () => {
+      alive = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", reloadWhenVisible);
+      document.removeEventListener("visibilitychange", reloadWhenVisible);
+      void supabase.removeChannel(auditChannel);
+      void supabase.removeChannel(profilesChannel);
+    };
+  }, []);
+
+  const refresh = async () => {
+    setLoading(true);
+
+    const [{ data: logData, error: logsError }, { data: profileData, error: profilesError }] =
+      await Promise.all([
+        supabase.from("login_audit_log").select("*").order("created_at", { ascending: false }).limit(500),
+        supabase
+          .from("profiles")
           .select("user_id, full_name, failed_login_count")
           .gt("failed_login_count", 3),
       ]);
-      setLogs((l as LogEntry[]) || []);
-      setProfiles((p as Profile[]) || []);
-      setLoading(false);
-    })();
-  }, []);
 
-  const filtered = logs.filter(l => {
-    const matchEvent = eventFilter === "all" || l.event === eventFilter;
-    const matchQ = !q || [l.email, l.event, l.user_agent, l.ip_address]
-      .filter(Boolean).join(" ").toLowerCase().includes(q.toLowerCase());
-    return matchEvent && matchQ;
+    if (logsError || profilesError) {
+      setError(logsError?.message || profilesError?.message || "Could not load security logs");
+    } else {
+      setError(null);
+    }
+
+    setLogs(((logData as LogEntry[]) || []).map(normalizeLogEntry));
+    setProfiles((profileData as Profile[]) || []);
+    setLoading(false);
+  };
+
+  const filtered = logs.filter((log) => {
+    const event = normalizeEvent(log.event);
+    const matchEvent = eventFilter === "all" || event === eventFilter;
+    const matchQuery =
+      !q ||
+      [log.email, event, log.user_agent, log.ip_address]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(q.toLowerCase());
+
+    return matchEvent && matchQuery;
   });
 
   if (loading) return <PageSpinner />;
@@ -72,53 +177,64 @@ export default function SecurityLogs() {
           <h1 className="page-title">Security Logs</h1>
           <p className="page-sub">Login and session audit trail</p>
         </div>
+        <button onClick={() => void refresh()} className="btn btn-secondary" type="button">
+          Refresh
+        </button>
       </div>
 
-      {/* High-risk account warnings */}
+      {error && (
+        <div
+          className="rounded-xl border px-4 py-3 text-sm"
+          style={{ background: "var(--amber-dim)", borderColor: "var(--amber)", color: "var(--amber)" }}
+        >
+          {error}
+        </div>
+      )}
+
       {profiles.length > 0 && (
         <div
           className="rounded-xl border px-4 py-3"
           style={{ background: "var(--red-dim)", borderColor: "var(--red)" }}
         >
-          <p className="text-sm font-semibold mb-2" style={{ color: "var(--red)" }}>
-            ⚠️ Accounts with {">"}3 failed login attempts
+          <p className="mb-2 text-sm font-semibold" style={{ color: "var(--red)" }}>
+            Warning: accounts with more than 3 failed login attempts
           </p>
           <div className="flex flex-wrap gap-2">
-            {profiles.map(p => (
+            {profiles.map((profile) => (
               <span
-                key={p.user_id}
-                className="text-xs px-2 py-1 rounded-lg font-medium"
+                key={profile.user_id}
+                className="rounded-lg px-2 py-1 text-xs font-medium"
                 style={{ background: "var(--surface)", color: "var(--text)" }}
               >
-                {p.full_name} — {p.failed_login_count} failures
+                {profile.full_name} - {profile.failed_login_count} failures
               </span>
             ))}
           </div>
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row">
         <div className="sm:w-64">
-          <SearchInput value={q} onChange={setQ} placeholder="Search email, event, IP…" />
+          <SearchInput value={q} onChange={setQ} placeholder="Search email, event, IP..." />
         </div>
-        <div className="flex gap-1 flex-wrap">
-          {EVENT_FILTERS.map(f => (
+        <div className="flex flex-wrap gap-1">
+          {EVENT_FILTERS.map((filter) => (
             <button
-              key={f}
-              onClick={() => setEventFilter(f)}
-              className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all capitalize"
+              key={filter}
+              onClick={() => setEventFilter(filter)}
+              className="rounded-lg px-2.5 py-1.5 text-xs font-medium capitalize transition-all"
               style={{
-                background: eventFilter === f ? "var(--accent)" : "var(--surface-2)",
-                color:      eventFilter === f ? "#fff" : "var(--text-muted)",
-                border:     `1px solid ${eventFilter === f ? "var(--accent)" : "var(--border)"}`,
+                background: eventFilter === filter ? "var(--accent)" : "var(--surface-2)",
+                color: eventFilter === filter ? "#fff" : "var(--text-muted)",
+                border: `1px solid ${eventFilter === filter ? "var(--accent)" : "var(--border)"}`,
               }}
+              type="button"
             >
-              {f === "all" ? "All" : (EVENT_STYLE[f]?.label ?? f)}
+              {filter === "all" ? "All" : (EVENT_STYLE[filter]?.label ?? filter)}
             </button>
           ))}
         </div>
-        <span className="text-xs self-center ml-auto font-mono" style={{ color: "var(--text-muted)" }}>
+        <span className="ml-auto self-center font-mono text-xs" style={{ color: "var(--text-muted)" }}>
           {filtered.length} entries
         </span>
       </div>
@@ -127,27 +243,41 @@ export default function SecurityLogs() {
         <EmptyState title="No log entries" subtitle="Login events will appear here as users sign in" />
       ) : (
         <>
-          {/* Mobile cards */}
-          <div className="sm:hidden space-y-2">
-            {filtered.map(l => {
-              const style = EVENT_STYLE[l.event] ?? { label: l.event, color: "var(--text-muted)", bg: "var(--surface-2)", icon: "·" };
+          <div className="space-y-2 sm:hidden">
+            {filtered.map((log) => {
+              const event = normalizeEvent(log.event);
+              const style = EVENT_STYLE[event] ?? {
+                label: event || "Unknown",
+                color: "var(--text-muted)",
+                bg: "var(--surface-2)",
+                icon: ".",
+              };
+
               return (
-                <Card key={l.id}>
-                  <div className="p-3 flex items-start gap-3">
+                <Card key={log.id}>
+                  <div className="flex items-start gap-3 p-3">
                     <div
-                      className="w-8 h-8 rounded-xl flex items-center justify-center text-sm shrink-0 font-bold"
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-[10px] font-bold"
                       style={{ background: style.bg, color: style.color }}
                     >
                       {style.icon}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-semibold" style={{ color: style.color }}>{style.label}</span>
-                        <span className="text-xs" style={{ color: "var(--text-muted)" }}>{l.email ?? "—"}</span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-semibold" style={{ color: style.color }}>
+                          {style.label}
+                        </span>
+                        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                          {log.email ?? "-"}
+                        </span>
                       </div>
-                      <p className="text-xs mt-0.5" style={{ color: "var(--text-dim)" }}>{fmtDateTime(l.created_at)}</p>
-                      {l.user_agent && (
-                        <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--text-dim)" }}>{l.user_agent.slice(0, 60)}</p>
+                      <p className="mt-0.5 text-xs" style={{ color: "var(--text-dim)" }}>
+                        {fmtDateTime(log.created_at)}
+                      </p>
+                      {log.user_agent && (
+                        <p className="mt-0.5 truncate text-[10px]" style={{ color: "var(--text-dim)" }}>
+                          {log.user_agent.slice(0, 60)}
+                        </p>
                       )}
                     </div>
                   </div>
@@ -156,33 +286,47 @@ export default function SecurityLogs() {
             })}
           </div>
 
-          {/* Desktop table */}
-          <div className="hidden sm:block card overflow-hidden">
+          <div className="hidden overflow-hidden sm:block card">
             <div className="overflow-x-auto">
               <table className="tms-table">
                 <thead>
-                  <tr><th>Event</th><th>Email</th><th>IP</th><th>Browser</th><th>Time</th></tr>
+                  <tr>
+                    <th>Event</th>
+                    <th>Email</th>
+                    <th>IP</th>
+                    <th>Browser</th>
+                    <th>Time</th>
+                  </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(l => {
-                    const style = EVENT_STYLE[l.event] ?? { label: l.event, color: "var(--text-muted)", bg: "var(--surface-2)", icon: "·" };
+                  {filtered.map((log) => {
+                    const event = normalizeEvent(log.event);
+                    const style = EVENT_STYLE[event] ?? {
+                      label: event || "Unknown",
+                      color: "var(--text-muted)",
+                      bg: "var(--surface-2)",
+                      icon: ".",
+                    };
+
                     return (
-                      <tr key={l.id} style={{ background: l.event === "login_failed" ? "var(--red-dim)" : undefined }}>
+                      <tr key={log.id} style={{ background: event === "login_failed" ? "var(--red-dim)" : undefined }}>
                         <td>
                           <span
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold"
+                            className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
                             style={{ background: style.bg, color: style.color }}
                           >
                             {style.icon} {style.label}
                           </span>
                         </td>
-                        <td className="font-mono text-xs">{l.email ?? "—"}</td>
-                        <td className="font-mono text-xs" style={{ color: "var(--text-muted)" }}>{l.ip_address ?? "—"}</td>
-                        <td className="text-xs max-w-[180px] truncate" style={{ color: "var(--text-dim)" }}>
-                          {l.user_agent ? l.user_agent.slice(0, 60) : "—"}
+                        <td className="font-mono text-xs">{log.email ?? "-"}</td>
+                        <td className="font-mono text-xs" style={{ color: "var(--text-muted)" }}>
+                          {log.ip_address ?? "-"}
                         </td>
-                        <td className="text-xs whitespace-nowrap" style={{ color: "var(--text-muted)" }}>
-                          {fmtDateTime(l.created_at)}
+                        <td className="max-w-[180px] truncate text-xs" style={{ color: "var(--text-dim)" }}>
+                          {log.user_agent ? log.user_agent.slice(0, 60) : "-"}
+                        </td>
+                        <td className="whitespace-nowrap text-xs" style={{ color: "var(--text-muted)" }}>
+                          {fmtDateTime(log.created_at)}
                         </td>
                       </tr>
                     );

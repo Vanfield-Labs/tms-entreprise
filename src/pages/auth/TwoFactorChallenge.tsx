@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
+import { markNextSignOutAsLogout } from "@/services/securityLog.service";
 
 const MAX_ATTEMPTS = 3;
 
@@ -55,6 +56,7 @@ export default function TwoFactorChallenge() {
         setAttempts(newAttempts);
         if (newAttempts >= MAX_ATTEMPTS) {
           setError("Too many incorrect codes. Please sign in again.");
+          markNextSignOutAsLogout();
           await supabase.auth.signOut();
           setTimeout(() => navigate("/login", { replace: true }), 2000);
         } else {
@@ -74,6 +76,7 @@ export default function TwoFactorChallenge() {
   };
 
   const handleSignOut = async () => {
+    markNextSignOutAsLogout();
     await supabase.auth.signOut();
     navigate("/login", { replace: true });
   };

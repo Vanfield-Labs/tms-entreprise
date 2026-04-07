@@ -7,6 +7,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { NotificationBell as SharedNotificationBell } from "@/components/NotificationBell";
 import { PushNotificationSetup } from "@/components/PushNotificationSetup";
 import { useAuth } from "@/hooks/useAuth";
+import { markNextSignOutAsLogout } from "@/services/securityLog.service";
 
 
 const NAV_STORAGE_KEY = "tms-active-nav-label";
@@ -620,6 +621,7 @@ const handleSignOut = async () => {
   setShowSignOutConfirm(false);
 
   try {
+    markNextSignOutAsLogout();
     clearStoredNavLabel(legacyNavStorageKey);
     clearStoredNavLabel(navStorageKey);
     sessionStorage.removeItem(LAST_ROUTE_STORAGE_KEY);

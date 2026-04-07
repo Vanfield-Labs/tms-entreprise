@@ -1,22 +1,31 @@
 // src/components/PushNotificationSetup.tsx
 // Shown once per user after login to prompt push subscription.
-// Dismissed permanently once subscribed (stored in localStorage).
+// The local dismissal state is reset automatically when the backend has no device subscription.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 
 const DISMISSED_KEY = "tms-push-prompt-dismissed";
 
 export function PushNotificationSetup() {
-  const { isSupported, permission, isSubscribed, subscribe } = usePushNotifications();
+  const { isSupported, permission, isSubscribed, checkedSubscription, subscribe } = usePushNotifications();
   const [subscribing, setSubscribing] = useState(false);
   const [result, setResult] = useState<"success" | "denied" | null>(null);
   const [dismissed, setDismissed] = useState(
     () => localStorage.getItem(DISMISSED_KEY) === "true"
   );
 
-  // Don't show if: not supported, already subscribed, already dismissed
-  if (!isSupported || isSubscribed || dismissed) return null;
+  useEffect(() => {
+    if (!checkedSubscription || isSubscribed) return;
+    localStorage.removeItem(DISMISSED_KEY);
+    setDismissed(false);
+  }, [checkedSubscription, isSubscribed]);
+
+  // Wait until the backend subscription state has been checked.
+  if (!isSupported || !checkedSubscription) return null;
+
+  // Don't show if: already subscribed or already dismissed
+  if (isSubscribed || dismissed) return null;
 
   // If permission already denied, show instructions
   if (permission === "denied") {
