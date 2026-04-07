@@ -3,7 +3,8 @@
 // All components use CSS variables (--text, --surface, --border, etc.)
 // and are mobile-first. Import from here instead of writing inline classes.
 
-import { ReactNode, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import { ReactNode, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import CardListSkeleton from "@/components/skeletons/CardListSkeleton";
 import TableSkeleton from "@/components/skeletons/TableSkeleton";
 import DashboardSkeleton from "@/components/skeletons/DashboardSkeleton";
@@ -405,6 +406,7 @@ export function ConfirmDialog({
   variant = "danger",
   onConfirm,
   onCancel,
+  acting = false,
 }: {
   open: boolean;
   title: string;
@@ -413,15 +415,114 @@ export function ConfirmDialog({
   variant?: BtnVariant;
   onConfirm: () => void;
   onCancel: () => void;
+  acting?: boolean;
 }) {
   return (
     <Modal open={open} onClose={onCancel} title={title} maxWidth="max-w-sm">
       <p className="text-sm text-[color:var(--text-muted)] mb-5">{message}</p>
       <div className="flex gap-3 justify-end">
-        <Btn variant="ghost" onClick={onCancel}>Cancel</Btn>
-        <Btn variant={variant} onClick={onConfirm}>{confirmLabel}</Btn>
+        <Btn variant="ghost" onClick={onCancel} disabled={acting}>Cancel</Btn>
+        <Btn variant={variant} onClick={onConfirm} loading={acting}>{confirmLabel}</Btn>
       </div>
     </Modal>
+  );
+}
+
+// ─── Context Menu ─────────────────────────────────────────────────────────────
+export type CtxItem = { label: string; icon: string; cls?: string; onClick: () => void };
+type MenuState = { top: number; left: number; anchorTop: number; anchorBottom: number } | null;
+
+export function CtxMenu({ items }: { items: CtxItem[] }) {
+  const [menu, setMenu] = useState<MenuState>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!menu || !menuRef.current) return;
+    const menuHeight = menuRef.current.offsetHeight;
+    const nextTop =
+      menu.anchorBottom + 6 + menuHeight <= window.innerHeight - 8
+        ? menu.anchorBottom + 6
+        : Math.max(8, menu.anchorTop - menuHeight - 6);
+    if (nextTop !== menu.top) {
+      setMenu((prev) => (prev ? { ...prev, top: nextTop } : prev));
+    }
+  }, [menu]);
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = (e: MouseEvent) => {
+      if (menuRef.current?.contains(e.target as Node) || triggerRef.current?.contains(e.target as Node)) return;
+      setMenu(null);
+    };
+    const closeOnResize = () => setMenu(null);
+    document.addEventListener("mousedown", close, true);
+    window.addEventListener("scroll", () => setMenu(null), { capture: true, once: true });
+    window.addEventListener("resize", closeOnResize);
+    return () => {
+      document.removeEventListener("mousedown", close, true);
+      window.removeEventListener("resize", closeOnResize);
+    };
+  }, [menu]);
+
+  const toggle = () => {
+    if (menu) {
+      setMenu(null);
+      return;
+    }
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const W = 196;
+    setMenu({
+      top: rect.bottom + 6,
+      left: Math.min(Math.max(8, rect.right - W), window.innerWidth - W - 8),
+      anchorTop: rect.top,
+      anchorBottom: rect.bottom,
+    });
+  };
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        onClick={toggle}
+        className="ctx-menu-trigger"
+        aria-label="More actions"
+      >
+        •••
+      </button>
+      {menu &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            className="ctx-menu"
+            style={{
+              position: "fixed",
+              top: menu.top,
+              left: menu.left,
+              width: 196,
+              transform: "translateZ(0)",
+            }}
+          >
+            {items.map((item, i) => (
+              <button
+                key={i}
+                role="menuitem"
+                className={`ctx-menu-item ${item.cls ?? ""}`}
+                onClick={() => {
+                  setMenu(null);
+                  item.onClick();
+                }}
+              >
+                <span>{item.icon}</span>
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
+    </>
   );
 }
 

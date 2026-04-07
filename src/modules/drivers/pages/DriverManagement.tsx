@@ -7,7 +7,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase";
-import { PageSpinner, EmptyState, Badge, Card, SearchInput, Field, Input, Select, Btn, Modal, TabBar } from "@/components/TmsUI";
+import { PageSpinner, EmptyState, Badge, Card, SearchInput, Field, Input, Select, Btn, Modal, TabBar, ExpiryPill, CtxMenu, ConfirmDialog, type CtxItem } from "@/components/TmsUI";
 import { fmtDate } from "@/lib/utils";
 import { usePagination, PaginationBar } from "@/hooks/usePagination";
 import { useAuth } from "@/hooks/useAuth";
@@ -40,12 +40,6 @@ function daysLeft(expiry:string|null):number|null{
   if(!expiry) return null;
   return Math.floor((new Date(expiry).getTime()-Date.now())/86_400_000);
 }
-function ExpiryPill({days}:{days:number|null}){
-  if(days===null) return null;
-  if(days<0) return <span style={{fontSize:11,fontWeight:700,color:"var(--red)",background:"rgba(220,38,38,0.1)",padding:"2px 8px",borderRadius:20}}>Expired</span>;
-  if(days<=30) return <span style={{fontSize:11,fontWeight:700,color:"var(--amber)",background:"rgba(217,119,6,0.1)",padding:"2px 8px",borderRadius:20}}>{days}d left</span>;
-  return null;
-}
 function TeamRoleBadge({role}:{role:string|null}){
   const map:Record<string,{label:string;cls:string}>={ leader:{label:"Group Leader",cls:"badge-approved"}, assistant:{label:"Assistant",cls:"badge-dispatched"}, member:{label:"Member",cls:"badge-draft"} };
   const r=map[role??"member"]??map.member;
@@ -65,81 +59,6 @@ function ExpiryBanner({variant,drivers}:{variant:"expired"|"expiring";drivers:Dr
   );
 }
 
-// ctx menu
-type CtxItem = {label:string;icon:string;cls?:string;onClick:()=>void};
-type MenuState = {top:number;left:number;anchorTop:number;anchorBottom:number}|null;
-function CtxMenu({items}:{items:CtxItem[]}){
-  const [menu,setMenu]=useState<MenuState>(null);
-  const triggerRef=useRef<HTMLButtonElement>(null);
-  const menuRef=useRef<HTMLDivElement>(null);
-  useLayoutEffect(()=>{
-    if(!menu||!menuRef.current) return;
-    const menuHeight=menuRef.current.offsetHeight;
-    const nextTop=menu.anchorBottom+6+menuHeight<=window.innerHeight-8
-      ? menu.anchorBottom+6
-      : Math.max(8,menu.anchorTop-menuHeight-6);
-    if(nextTop!==menu.top){
-      setMenu(prev=>prev?{...prev,top:nextTop}:prev);
-    }
-  },[menu]);
-  useEffect(()=>{
-    if(!menu) return;
-    const close=(e:MouseEvent)=>{if(menuRef.current?.contains(e.target as Node)||triggerRef.current?.contains(e.target as Node)) return;setMenu(null);};
-    const closeOnResize=()=>setMenu(null);
-    document.addEventListener("mousedown",close,true);
-    window.addEventListener("scroll",()=>setMenu(null),{capture:true,once:true});
-    window.addEventListener("resize",closeOnResize);
-    return()=>{
-      document.removeEventListener("mousedown",close,true);
-      window.removeEventListener("resize",closeOnResize);
-    };
-  },[menu]);
-  const toggle=()=>{
-    if(menu){setMenu(null);return;}
-    const rect=triggerRef.current?.getBoundingClientRect();
-    if(!rect) return;
-    const W=196;
-    setMenu({
-      top:rect.bottom+6,
-      left:Math.min(Math.max(8,rect.right-W),window.innerWidth-W-8),
-      anchorTop:rect.top,
-      anchorBottom:rect.bottom,
-    });
-  };
-  return (
-    <>
-      <button ref={triggerRef} onClick={toggle} aria-label="More actions"
-        style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:32,height:32,padding:0,background:"transparent",border:"1px solid var(--border)",borderRadius:8,cursor:"pointer",color:"var(--text-muted)",fontSize:16,letterSpacing:2,flexShrink:0}}
-        onMouseEnter={e=>{(e.currentTarget as HTMLButtonElement).style.background="var(--surface-2)"}}
-        onMouseLeave={e=>{(e.currentTarget as HTMLButtonElement).style.background="transparent"}}>•••</button>
-      {menu&&createPortal(
-        <div ref={menuRef} role="menu" style={{position:"fixed",top:menu.top,left:menu.left,width:196,maxHeight:"calc(100vh - 16px)",overflowY:"auto",zIndex:2147483647,background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"4px 0",boxShadow:"0 4px 6px -1px rgba(0,0,0,0.10), 0 16px 40px -4px rgba(0,0,0,0.18)",transform:"translateZ(0)"}}>
-          {items.map((item,i)=>{
-            const fg=item.cls==="danger"?"var(--red)":item.cls==="warning"?"var(--amber)":item.cls==="success"?"var(--green)":"var(--text)";
-            const hoverBg=item.cls==="danger"?"rgba(220,38,38,0.09)":item.cls==="warning"?"rgba(217,119,6,0.09)":item.cls==="success"?"rgba(22,163,74,0.09)":"var(--surface-2)";
-            return <button key={i} role="menuitem" onClick={()=>{setMenu(null);item.onClick();}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 16px",minHeight:44,background:"transparent",border:"none",color:fg,cursor:"pointer",fontSize:13,fontWeight:500,textAlign:"left"}} onMouseEnter={e=>(e.currentTarget.style.background=hoverBg)} onMouseLeave={e=>(e.currentTarget.style.background="transparent")}><span style={{fontSize:15,lineHeight:1,flexShrink:0}}>{item.icon}</span><span style={{fontFamily:"inherit"}}>{item.label}</span></button>;
-          })}
-        </div>,document.body
-      )}
-    </>
-  );
-}
-
-function ConfirmDialog({open,title,message,confirmLabel="Confirm",variant="danger",onConfirm,onCancel}:{open:boolean;title:string;message:string;confirmLabel?:string;variant?:"danger"|"warning";onConfirm:()=>void;onCancel:()=>void;}){
-  if(!open) return null;
-  return (
-    <div style={{position:"fixed",inset:0,zIndex:2147483646,display:"flex",alignItems:"center",justifyContent:"center",padding:16,background:"rgba(0,0,0,0.6)",backdropFilter:"blur(4px)"}}>
-      <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:20,padding:24,width:"100%",maxWidth:360,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
-        <h3 style={{fontSize:15,fontWeight:700,color:"var(--text)",marginBottom:8}}>{title}</h3>
-        <p style={{fontSize:13,color:"var(--text-muted)",marginBottom:20,lineHeight:1.5}}>{message}</p>
-        <div style={{display:"flex",justifyContent:"flex-end",gap:10}}>
-          <Btn variant="ghost" onClick={onCancel}>Cancel</Btn>
-          <Btn variant={variant==="danger"?"danger":"amber"} onClick={onConfirm}>{confirmLabel}</Btn>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default function DriverManagement() {
   const { profile } = useAuth();
@@ -384,7 +303,7 @@ export default function DriverManagement() {
                           {d.phone&&<div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"var(--text-muted)"}}><span>📞</span><span style={{fontFamily:"'IBM Plex Mono',monospace"}}>{d.phone}</span></div>}
                           {d.employment_date&&<div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"var(--text-muted)"}}><span>📅</span><span>Joined {fmtDate(d.employment_date)}</span></div>}
                           {d.team_name&&<div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}><span style={{fontSize:12}}>👥</span><span style={{fontSize:12,fontWeight:600,color:"var(--text)"}}>{d.team_name}</span><TeamRoleBadge role={d.team_role}/></div>}
-                          {d.license_expiry&&<div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:12,color:"var(--text-muted)"}}>🪪 Expires {fmtDate(d.license_expiry)}</span><ExpiryPill days={days}/></div>}
+                          {d.license_expiry&&<div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:12,color:"var(--text-muted)"}}>🪪 Expires {fmtDate(d.license_expiry)}</span><ExpiryPill daysLeft={days}/></div>}
                         </div>
                       </div>
                     </Card>
@@ -422,7 +341,7 @@ export default function DriverManagement() {
                             <td>{d.team_name?<span style={{fontWeight:600,fontSize:13}}>{d.team_name}</span>:<span style={{color:"var(--text-dim)",fontSize:12}}>—</span>}</td>
                             <td>{d.team_role?<TeamRoleBadge role={d.team_role}/>:<span style={{color:"var(--text-dim)",fontSize:12}}>—</span>}</td>
                             <td>{d.assigned_route?<span className="badge badge-dispatched" style={{whiteSpace:"nowrap"}}>{d.assigned_route}</span>:<span style={{color:"var(--text-dim)",fontSize:12}}>—</span>}</td>
-                            <td style={{whiteSpace:"nowrap"}}><div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:12,color:"var(--text-muted)"}}>{d.license_expiry?fmtDate(d.license_expiry):"—"}</span><ExpiryPill days={days}/></div></td>
+                            <td style={{whiteSpace:"nowrap"}}><div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:12,color:"var(--text-muted)"}}>{d.license_expiry?fmtDate(d.license_expiry):"—"}</span><ExpiryPill daysLeft={days}/></div></td>
                             <td><Badge status={d.employment_status}/></td>
                             <td><div style={{display:"flex",justifyContent:"center"}}><CtxMenu items={ctxItems}/></div></td>
                           </tr>
