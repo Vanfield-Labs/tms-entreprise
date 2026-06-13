@@ -16,7 +16,7 @@ type SidebarProps = {
   installPrompt: any;
   appInstalled: boolean;
   handleInstall: () => void;
-  setShowSignOutConfirm: (o: boolean) => void;
+  openSignOutConfirm: () => void;
 };
 
 export function Sidebar({
@@ -33,7 +33,7 @@ export function Sidebar({
   installPrompt,
   appInstalled,
   handleInstall,
-  setShowSignOutConfirm,
+  openSignOutConfirm,
 }: SidebarProps) {
   return (
     <>
@@ -195,7 +195,7 @@ export function Sidebar({
           )}
 
           <button
-            onClick={() => setShowSignOutConfirm(true)}
+            onClick={openSignOutConfirm}
             className={`
               w-full flex items-center rounded-xl text-sm min-h-[44px] transition-colors
               text-[color:var(--text-muted)] hover:bg-[color:var(--red)]/10 hover:text-[color:var(--red)]

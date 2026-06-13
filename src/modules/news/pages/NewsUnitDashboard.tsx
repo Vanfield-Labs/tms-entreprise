@@ -79,6 +79,19 @@ function fmtTime(t: string | null) {
   return t ? t.slice(0, 5) : "—";
 }
 
+function getAssignmentAutoCompleteAt(assignment: Pick<Assignment, "assignment_date" | "departure_time">) {
+  if (!assignment.departure_time) return null;
+  const scheduledAt = new Date(`${assignment.assignment_date}T${assignment.departure_time}`);
+  if (Number.isNaN(scheduledAt.getTime())) return null;
+  return new Date(scheduledAt.getTime() + 6 * 60 * 60 * 1000);
+}
+
+function shouldAutoCompleteAssignment(assignment: Pick<Assignment, "status" | "assignment_date" | "departure_time">) {
+  if (assignment.status !== "active") return false;
+  const autoCompleteAt = getAssignmentAutoCompleteAt(assignment);
+  return autoCompleteAt ? autoCompleteAt.getTime() <= Date.now() : false;
+}
+
 async function getDriverRecordsByIds(driverIds: string[]): Promise<Driver[]> {
   if (!driverIds.length) return [];
   const { data, error } = await supabase
@@ -217,6 +230,32 @@ export default function NewsUnitDashboard({
       if (asgErr) throw asgErr;
 
       const asgList = (asgData as any[]) || [];
+      const dueAssignments = asgList.filter(shouldAutoCompleteAssignment);
+
+      if (dueAssignments.length > 0) {
+        await Promise.all(
+          dueAssignments.map((assignment) =>
+            supabase.rpc("update_news_assignment_status", {
+              p_assignment_id: assignment.id,
+              p_status: "completed",
+            })
+          )
+        );
+
+        const { data: refreshedAsgData, error: refreshErr } = await supabase
+          .from("news_assignments")
+          .select(
+            "id,destination,gps_address,call_time,departure_time,assignment_date,is_urgent,is_live_u,notes,status,reporter_id,driver_id,camera_tech_id"
+          )
+          .eq("unit_id", unitId)
+          .order("created_at", { ascending: false })
+          .limit(200);
+
+        if (refreshErr) throw refreshErr;
+
+        asgList.splice(0, asgList.length, ...((refreshedAsgData as any[]) || []));
+      }
+
       const repIds = [...new Set(asgList.map((a) => a.reporter_id).filter(Boolean))];
       const drvIds = [...new Set(asgList.map((a) => a.driver_id).filter(Boolean))];
       const camIds = [...new Set(asgList.map((a) => a.camera_tech_id).filter(Boolean))];
@@ -319,6 +358,14 @@ export default function NewsUnitDashboard({
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      void load();
+    }, 60_000);
+
+    return () => window.clearInterval(interval);
   }, [load]);
 
   // Drivers for the chosen assignment date

@@ -220,6 +220,11 @@ export default function AppShell({ title, navItems = [], children }: Props) {
     }
   };
 
+  const openSignOutConfirm = () => {
+    setSidebarOpen(false);
+    setShowSignOutConfirm(true);
+  };
+
   useEffect(() => {
     let cancelled = false;
     const loadUnitName = async () => {
@@ -329,7 +334,7 @@ export default function AppShell({ title, navItems = [], children }: Props) {
           installPrompt={installPrompt}
           appInstalled={appInstalled}
           handleInstall={handleInstall}
-          setShowSignOutConfirm={setShowSignOutConfirm}
+          openSignOutConfirm={openSignOutConfirm}
         />
 
         <main className="flex-1 min-w-0 flex flex-col bg-[color:var(--bg)]">
